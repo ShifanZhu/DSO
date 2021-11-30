@@ -56,7 +56,8 @@ extern bool EFIndicesValid;
 extern bool EFDeltaValid;
 
 
-
+// 优化部分由EnergyFunctional类统一管理。它从FullSystem中获取所有帧和点的数据，进行优化后，再将优化结果返回。
+// 它也包含整个滑动窗口内的所有帧和点信息，负责处理实际的非线性优化矩阵运算。
 class EnergyFunctional {
 public:
 	EIGEN_MAKE_ALIGNED_OPERATOR_NEW;
