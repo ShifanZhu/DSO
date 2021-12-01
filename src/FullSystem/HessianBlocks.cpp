@@ -135,6 +135,7 @@ void FrameHessian::release()
 void FrameHessian::makeImages(float* color, CalibHessian* HCalib)
 {
 	// 每一层创建图像值, 和图像梯度的存储空间
+	// 1. dIp 每一层图像的辐射值、x 方向梯度、y 方向梯度；2. dI 指向 dIp[0] 也就是原始图像的信息；3. absSquaredGrad 存储 xy 方向梯度值的平方和。
 	for(int i=0;i<pyrLevelsUsed;i++)
 	{
 		dIp[i] = new Eigen::Vector3f[wG[i]*hG[i]];
