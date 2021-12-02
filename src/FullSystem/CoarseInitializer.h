@@ -76,6 +76,7 @@ public:
 	float outlierTH; 			//!< 外点阈值
 };
 
+// 前端初始化由 coarseInitializer 类完成。
 class CoarseInitializer {
 public:
 	EIGEN_MAKE_ALIGNED_OPERATOR_NEW;

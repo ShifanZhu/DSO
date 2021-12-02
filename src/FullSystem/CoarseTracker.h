@@ -41,6 +41,7 @@ struct CalibHessian;
 struct FrameHessian;
 struct PointFrameResidual;
 
+// 前端跟踪由 CoarseTracker 类完成。
 class CoarseTracker {
 public:
 	EIGEN_MAKE_ALIGNED_OPERATOR_NEW;

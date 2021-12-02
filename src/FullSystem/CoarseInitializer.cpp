@@ -80,16 +80,18 @@ CoarseInitializer::~CoarseInitializer()
 
 
 // CoarseInitializer::trackFrame 中将所有 points （第一帧上的点）的逆深度初始化为1。从金字塔最高层到最底层依次匹配，每一层的匹配都是高斯牛顿优化过程，
-// 在 CoarseIntializer::calcResAndGS 中计算Hessian矩阵等信息，计算出来的结果在 CoarseInitializer::trackFrame 中更新相对位姿（存储在局部变量中，现在还没有确定要不要接受这一步优化），
-// 在 CoarseInitializer::trackFrame 中调用 CoarseInitializer::doStep 中更新点的逆深度信息。随后再调用一次 CoarseIntializer::calcResAndGS，计算新的能量，如果新能量更低，
-// 那么就接受这一步优化，在 CoarseInitializer::applyStep 中生效前面保存的优化结果。
+// 在 CoarseIntializer::calcResAndGS 中计算Hessian矩阵等信息，计算出来的结果在 CoarseInitializer::trackFrame 中更新相对位姿（存储在局部变量中，
+// 现在还没有确定要不要接受这一步优化），在 CoarseInitializer::trackFrame 中调用 CoarseInitializer::doStep 中更新点的逆深度信息。
+// 随后再调用一次 CoarseIntializer::calcResAndGS，计算新的能量，如果新能量更低，那么就接受这一步优化，
+// 在 CoarseInitializer::applyStep 中生效前面保存的优化结果。
 
-// 一些加速优化过程的操作：1. 每一层匹配开始的时候，调用一次 CoarseInitializer::propagateDown，将当前层所有点的逆深度设置为的它们 parent （上一层）的逆深度；
+// 一些加速优化过程的操作：1.每一层匹配开始的时候，调用一次 CoarseInitializer::propagateDown，将当前层所有点的逆深度设置为的它们parent（上一层）的逆深度；
 // 2. 在每次接受优化结果，更新每个点的逆深度，调用一次 CoarseInitializer::optReg 将所有点的 iR 设置为其 neighbour 逆深度的中位数，其实这个函数
-// 在 CoarseInitializer::propagateDown 和 CoarseInitializer::propagateUp 中都有调用，iR 变量相当于是逆深度的真值，在优化的过程中，使用这个值计算逆深度误差，效果是幅面中的逆深度平滑。
+// 在 CoarseInitializer::propagateDown 和 CoarseInitializer::propagateUp 中都有调用，iR 变量相当于是逆深度的真值，在优化的过程中，使用这个值计算
+// 逆深度误差，效果是幅面中的逆深度平滑。
 
-// 优化过程中的 lambda 和点的逆深度有关系，起一个加权的作用，也不是很明白对 lambda 增减的操作。在完成所有层的优化之后，进行 CoarseInitializer::propagateUp 操作，
-// 使用低一层点的逆深度更新其高一层点 parent 的逆深度，这个更新是基于 iR 的，使得逆深度平滑。高层的点逆深度，在后续的操作中，没有使用到，所以这一步操作我认为是无用的。
+// 优化过程中的lambda和点的逆深度有关系，起一个加权的作用，也不是很明白对lambda增减的操作。在完成所有层的优化之后，进行 CoarseInitializer::propagateUp操作，
+// 使用低一层点的逆深度更新其高一层点parent的逆深度，这个更新是基于iR的，使得逆深度平滑。高层的点逆深度，在后续的操作中，没有使用到，所以这一步操作我认为是无用的。
 bool CoarseInitializer::trackFrame(FrameHessian* newFrameHessian, std::vector<IOWrap::Output3DWrapper*> &wraps)
 {
 	newFrame = newFrameHessian;

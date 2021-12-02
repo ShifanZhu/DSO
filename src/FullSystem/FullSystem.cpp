@@ -840,10 +840,11 @@ void FullSystem::flagPointsForRemoval()
  * @ note: start from here
  *******************************/
 /*
- * DSO的入口是FullSystem::addActiveFrame，输入的图像生成 FrameHessian 和 FrameShell 的对象， FrameShell 是 FrameHessian 的成员变量，FrameHessian 保存图像信息，
- * FrameShell 保存帧的位置姿态信息。代码中一般用 fh 指针变量指向当前帧的 FrameHessian。在处理完成当前帧之后，会删除 FrameHessian，而保存 FrameShell 在变量 allFrameHistory 中，
- * 作为最后整条轨迹的输出。对输入图像会做预处理，如果有光度标定,像素值不是灰度值，而是处理后的辐射值，这些辐射值的大小是[0, 255]，float型。数据预处理部分是在FullSystem::addActiveFrame中
- * 调用的 FrameHessian::makeImages ，这个函数为当前帧的图像建立图像金字塔，并且计算每一层图像的梯度。这些计算结果都存储在 FrameHessian 的成员变量中，
+ * DSO的入口是FullSystem::addActiveFrame，输入的图像生成 FrameHessian 和 FrameShell 的对象， FrameShell 是 FrameHessian 的成员变量，
+ * FrameHessian 保存图像信息， FrameShell 保存帧的位置姿态信息。代码中一般用 fh 指针变量指向当前帧的 FrameHessian。在处理完成当前帧之后，
+ * 会删除 FrameHessian，而保存 FrameShell 在变量 allFrameHistory 中，作为最后整条轨迹的输出。对输入图像会做预处理，如果有光度标定,像素值
+ * 不是灰度值，而是处理后的辐射值，这些辐射值的大小是[0, 255]，float型。数据预处理部分是在FullSystem::addActiveFrame中调用
+ * 的 FrameHessian::makeImages ，这个函数为当前帧的图像建立图像金字塔，并且计算每一层图像的梯度。这些计算结果都存储在 FrameHessian 的成员变量中，
  * 1. dIp 每一层图像的辐射值、x 方向梯度、y 方向梯度；2. dI 指向 dIp[0] 也就是原始图像的信息；3. absSquaredGrad 存储 xy 方向梯度值的平方和。
  */
 void FullSystem::addActiveFrame( ImageAndExposure* image, int id )
@@ -873,9 +874,11 @@ void FullSystem::addActiveFrame( ImageAndExposure* image, int id )
 
 
 	//[ ***step 4*** ] 进行初始化
+	// 前端初始化由 coarseInitializer 类完成。
 	// 首先判断是否完成了初始化，如果没有完成初始化，就将当前帧 fh 输入 CoarseInitializer::setFirst 中。完成之后接着处理下一帧。
-	// 初始化最少需要有七帧，如果第二帧CoarseInitializer::trackFrame 处理完成之后，位移足够,则再优化到满足位移的后5帧返回true. 在 FullSystem::initializerFromInitializer
-	// 中为第一帧生成 pointHessians，一共2000个左右。随后将第7帧作为 KeyFrame 输入到 FullSystem::deliverTrackedFrame，最终流入 FullSystem::makeKeyFrame。
+	// 初始化最少需要有七帧，如果第二帧CoarseInitializer::trackFrame 处理完成之后，位移足够,则再优化到满足位移的后5帧返回true. 
+	// 在 FullSystem::initializerFromInitializer 中为第一帧生成 pointHessians，一共2000个左右。随后将第7帧作为 KeyFrame 输入
+	// 到 FullSystem::deliverTrackedFrame，最终流入 FullSystem::makeKeyFrame。
 	// （FullSystem::deliverTrackedFrame 的作用就是实现多线程的数据输入。）
 	if(!initialized)
 	{
@@ -890,7 +893,7 @@ void FullSystem::addActiveFrame( ImageAndExposure* image, int id )
 		//[ ***step 4.2*** ] 跟踪成功, 完成初始化
 			initializeFromInitializer(fh);
 			lock.unlock();
-			deliverTrackedFrame(fh, true);
+			deliverTrackedFrame(fh, true); // 前端后端的数据接口，进行数据通讯
 		}
 		else
 		{
@@ -1268,8 +1271,9 @@ void FullSystem::makeKeyFrame( FrameHessian* fh)
 }
 
 //@ 从初始化中提取出信息, 用于跟踪.
-// FullSystem::initializeFromInitializer，第一帧是 firstFrame，第七帧是 newFrame，从 CoarseInitializer 中抽取出 2000 个点作为 firstFrame 的 pointHessians。
-// 设置的逆深度有 CoarseIntiailzier::trackFrame 中计算出来的 iR 和 idepth，而这里使用了 rescaleFactor 这个局部变量，保证所有 iR 的均值为 1。iR 设置的是 PointHessian 的 idepth，
+// FullSystem::initializeFromInitializer，第一帧是 firstFrame，第七帧是 newFrame，从 CoarseInitializer 中抽取出 2000 个点
+// 作为 firstFrame 的 pointHessians。设置的逆深度有 CoarseIntiailzier::trackFrame 中计算出来的 iR 和 idepth，而这里
+// 使用了 rescaleFactor 这个局部变量，保证所有 iR 的均值为 1。iR 设置的是 PointHessian 的 idepth，
 // 而 idepth 设置的是 PointHessian 的 idepth_zero(缩放了scale倍的固定线性化点逆深度)，idepth_zero 相当于估计的真值，用于计算误差。
 void FullSystem::initializeFromInitializer(FrameHessian* newFrame)
 {
