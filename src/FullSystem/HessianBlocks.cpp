@@ -131,16 +131,32 @@ void FrameHessian::release()
 	immaturePoints.clear();
 }
 
-//* 计算各层金字塔图像的像素值和梯度
+//* 构建图像金字塔，并计算各层金字塔图像的像素值和梯度
 void FrameHessian::makeImages(float* color, CalibHessian* HCalib)
 {
 	// 每一层创建图像值, 和图像梯度的存储空间
 	// 1. dIp 每一层图像的辐射值、x 方向梯度、y 方向梯度；2. dI 指向 dIp[0] 也就是原始图像的信息；3. absSquaredGrad 存储 xy 方向梯度值的平方和。
 	for(int i=0;i<pyrLevelsUsed;i++)
 	{
+		// 首先对每层金字塔初始化两个数组，数组的类型为Eigen::Vector3f和float
+		// dIp[i] 和 absSquaredGrad[i] 是金字塔第i层的数组的首地址
+		// dIp[i]数组的元素为三维向量，分别代表像素灰度值，x方向的梯度，y方向的梯度。
 		dIp[i] = new Eigen::Vector3f[wG[i]*hG[i]];
+		// absSquaredGrad[i]数组的元素代表两个方向的梯度平方和。
 		absSquaredGrad[i] = new float[wG[i]*hG[i]];
 	}
+
+/*	
+	// 帮助理解
+	dI=dIp[0];  获取金字塔第0层，若要获取其他层，修改中括号里面即可；
+	dI[idx][0]  表示图像金字塔第0层，idx位置处的像素的像素灰度值;(这是因为DSO中存储图像像素值都是采用一维数组来表示，类似于opencv里面的data数组。)
+	dI[idx][1]  表示图像金字塔第0层，idx位置处的像素的x方向的梯度
+	dI[idx][2]  表示图像金字塔第0层，idx位置处的像素的y方向的梯度
+	abs=absSquaredGrad[1]; ///获取金字塔第1层，若要获取其他层，修改中括号里面即可；
+	abs[idx]   表示图像金字塔第1层，，idx位置处的像素x,y方向的梯度平方和
+	此两个数据的构建：主要内容是图像金字塔是如何产生以及梯度的求取
+*/
+
 	dI = dIp[0]; // 原来他们指向同一个地方
 
 
@@ -148,14 +164,14 @@ void FrameHessian::makeImages(float* color, CalibHessian* HCalib)
 	int w=wG[0]; // 零层weight
 	int h=hG[0]; // 零层height
 	for(int i=0;i<w*h;i++)
-		dI[i][0] = color[i];
+		dI[i][0] = color[i]; // 第0层没有缩放，所以直接使用color赋值
 
 	for(int lvl=0; lvl<pyrLevelsUsed; lvl++)
 	{
-		int wl = wG[lvl], hl = hG[lvl]; // 该层图像大小
-		Eigen::Vector3f* dI_l = dIp[lvl];
+		int wl = wG[lvl], hl = hG[lvl]; // 该层图像大小，每层在上一层的基础上除以2
+		Eigen::Vector3f* dI_l = dIp[lvl]; // dI_l 指向当前层首个数据
 
-		float* dabs_l = absSquaredGrad[lvl];
+		float* dabs_l = absSquaredGrad[lvl]; // dabs_l 指向当前层首个数据
 		if(lvl>0)
 		{
 			int lvlm1 = lvl-1;
@@ -163,18 +179,20 @@ void FrameHessian::makeImages(float* color, CalibHessian* HCalib)
 			Eigen::Vector3f* dI_lm = dIp[lvlm1];
 
 
-			// 像素4合1, 生成金字塔
+			// 像素4合1, 生成金字塔，即上层金字塔图像的像素值是由下层图像的4个像素值均匀采样得到的
+			// 下述代码中dI_l表示上层金字塔图像首地址，dI_lm表示下层图像金字塔的首地址。
+			// dI_lm[]数组里边用了"乘以2"来计算index，是因为金字塔的每层的大小在之前一层的基础上除以2
 			for(int y=0;y<hl;y++)
 				for(int x=0;x<wl;x++)
 				{
-					dI_l[x + y*wl][0] = 0.25f * (dI_lm[2*x   + 2*y*wlm1][0] +
+					dI_l[x + y*wl][0] = 0.25f * (dI_lm[2*x   + 2*y*wlm1][0] + // 此处dI_lm[][0]的0表示取vec3中的第一个元素，也就是像素灰度值
 												dI_lm[2*x+1 + 2*y*wlm1][0] +
 												dI_lm[2*x   + 2*y*wlm1+wlm1][0] +
 												dI_lm[2*x+1 + 2*y*wlm1+wlm1][0]);
 				}
 		}
 
-		for(int idx=wl;idx < wl*(hl-1);idx++) // 第二行开始
+		for(int idx=wl;idx < wl*(hl-1);idx++) // idx等于wl而不是0，说明从第二行开始
 		{
 			float dx = 0.5f*(dI_l[idx+1][0] - dI_l[idx-1][0]);
 			float dy = 0.5f*(dI_l[idx+wl][0] - dI_l[idx-wl][0]);

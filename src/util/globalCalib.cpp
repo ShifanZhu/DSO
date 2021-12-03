@@ -87,7 +87,7 @@ namespace dso
 
 		for (int level = 1; level < pyrLevelsUsed; ++ level)
 		{
-			wG[level] = w >> level;
+			wG[level] = w >> level; // 相当于每一层在前一层的基础上除以2
 			hG[level] = h >> level;
 
 			fxG[level] = fxG[level-1] * 0.5;

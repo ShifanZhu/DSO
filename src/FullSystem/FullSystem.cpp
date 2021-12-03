@@ -859,7 +859,7 @@ void FullSystem::addActiveFrame( ImageAndExposure* image, int id )
 	FrameHessian* fh = new FrameHessian();
 	FrameShell* shell = new FrameShell();
 	shell->camToWorld = SE3(); 		// no lock required, as fh is not used anywhere yet.
-	shell->aff_g2l = AffLight(0,0);
+	shell->aff_g2l = AffLight(0,0); // 光度仿射变换, 用来建模曝光时间
     shell->marginalizedAt = shell->id = allFrameHistory.size();
     shell->timestamp = image->timestamp;
     shell->incoming_id = id;
