@@ -192,13 +192,14 @@ void FrameHessian::makeImages(float* color, CalibHessian* HCalib)
 				}
 		}
 
-		for(int idx=wl;idx < wl*(hl-1);idx++) // idx等于wl而不是0，说明从第二行开始
+		for(int idx=wl;idx < wl*(hl-1);idx++) // idx等于wl而不是0，说明从第二行开始，因为下边算梯度需要计算 idx-wl
 		{
-			float dx = 0.5f*(dI_l[idx+1][0] - dI_l[idx-1][0]);
-			float dy = 0.5f*(dI_l[idx+wl][0] - dI_l[idx-wl][0]);
+			// 此种方法对图像左右边界处的梯度计算有误呀，但可能影响不大
+			float dx = 0.5f*(dI_l[idx+1][0] - dI_l[idx-1][0]); // 当前点右边-当前点左边
+			float dy = 0.5f*(dI_l[idx+wl][0] - dI_l[idx-wl][0]); // 当前点下边-当前点上边
 
 
-			if(!std::isfinite(dx)) dx=0;
+			if(!std::isfinite(dx)) dx=0; // 如果梯度有限，dx为无穷大
 			if(!std::isfinite(dy)) dy=0;
 
 			dI_l[idx][1] = dx; // 梯度
