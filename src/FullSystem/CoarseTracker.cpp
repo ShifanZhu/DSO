@@ -134,6 +134,8 @@ void CoarseTracker::makeK(CalibHessian* HCalib)
 
 
 //@ 使用在当前帧上投影的点的逆深度, 来生成每个金字塔层上点的逆深度值
+// 将目标帧是当前帧的点(即构建残差时投影到当前帧的点)优化的逆深度建立 idepth[0]， weightSums[0]，然后通过对下层采样获取金字塔
+// 各层的 idepth_l = idepth[lvl] 和 weightSums_l = weightSums[lvl]。
 void CoarseTracker::makeCoarseDepthL0(std::vector<FrameHessian*> frameHessians)
 {
 	// make coarse tracking templates for latstRef.
@@ -534,6 +536,8 @@ Vec6 CoarseTracker::calcRes(int lvl, const SE3 &refToNew, AffLight aff_g2l, floa
 
 
 //@ 把优化完的最新帧设为参考帧
+// 10.setCoarseTrackingRef(frameHessians) 设置当前帧为下次跟踪的参考帧，并通过 makeCoarseDepthL0() 将目标帧是当前帧的点(即构建残差时投影到当前帧的点)
+// 优化的逆深度建立 idepth[0]， weightSums[0]，然后通过对下层采样获取金字塔各层的 idepth_l = idepth[lvl] 和 weightSums_l = weightSums[lvl]。
 void CoarseTracker::setCoarseTrackingRef(
 		std::vector<FrameHessian*> frameHessians)
 {

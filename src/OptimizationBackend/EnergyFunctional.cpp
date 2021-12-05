@@ -44,11 +44,15 @@ bool EFDeltaValid = false;			//!< 是否设置状态增量值
 
 //@ 计算adHost(F), adTarget(F)
 // 传的参数也没用啊
+// 利用setAdjointsF(Hcalib);建立两帧之间的相对状态对主导帧和目标帧的状态的求导。（因为优化的变量是各帧的绝对状态而不是相对状态，在后面的滑窗优化中会使用到）
+// 建立方法为：定义两个数组，分别用来存储主导帧和目标帧， adHost = new Mat88[nFrames*nFrames]; adTarget = new Mat88[nFrames*nFrames];
+// 然后会传递给数组 adHostF 和 adTargetF ， 这里是会建立尽可能多的主导帧和目标帧的关联，即遍历所有帧，将所有帧作为当前帧的目标帧。
 void EnergyFunctional::setAdjointsF(CalibHessian* Hcalib)
 {
 
 	if(adHost != 0) delete[] adHost;
 	if(adTarget != 0) delete[] adTarget;
+	// 定义两个数组，分别用来存储主导帧和目标帧
 	adHost = new Mat88[nFrames*nFrames];
 	adTarget = new Mat88[nFrames*nFrames];
 
@@ -439,6 +443,9 @@ double EnergyFunctional::calcLEnergyF_MT()
 
 
 //@ 向能量函数中插入一残差, 更新连接图关系
+// 在insertResidual();函数中，会生成类 EFResidual 的对象 efr （每个残差对应一个 efr ， r->efResidual = efr;），包含残差，点，主导帧，目标帧的信息,
+// 并在构造函数中设置 isLinearized=false;在滑窗优化中会使用到。同样按照push_back的顺序，对 efr 建立 idx ，每个点会对应多个残差项，
+// 存储到点的 vector：residualsAll 中，其中 nResiduals 表示残差项的数量。
 EFResidual* EnergyFunctional::insertResidual(PointFrameResidual* r)
 {
 	EFResidual* efr = new EFResidual(r, r->point->efPoint, r->host->efFrame, r->target->efFrame);
@@ -454,6 +461,9 @@ EFResidual* EnergyFunctional::insertResidual(PointFrameResidual* r)
 }
 
 //@ 向能量函数中增加一帧, 进行的操作: 改变正规方程, 重新排ID, 共视关系
+// 利用ef->insertFrame(firstFrame, &Hcalib)，将第一帧加入到优化后端energyFunction，加入过程为：创建当前帧的EFFrame对象eff，
+// 并将其加入到vector：frames，同时将表示energyFunction中图像帧数量的nFrames加1（用来确定优化变量的维数，每个图像帧是8维），并且
+// 建立当前帧和eff 的关联：fh->efFrame = eff;，然后执行setAdjointsF();和makeIDX();
 EFFrame* EnergyFunctional::insertFrame(FrameHessian* fh, CalibHessian* Hcalib)
 {
 	// 建立优化用的能量函数帧. 并加进能量函数frames中
@@ -477,7 +487,10 @@ EFFrame* EnergyFunctional::insertFrame(FrameHessian* fh, CalibHessian* Hcalib)
 	EFAdjointsValid=false;
 	EFDeltaValid=false;
 
+	// 利用setAdjointsF(Hcalib);建立两帧之间的相对状态对主导帧和目标帧的状态的求导。（因为优化的变量是各帧的绝对状态而不是相对状态，在后面的滑窗优化中会使用到）
 	setAdjointsF(Hcalib); 	// 设置伴随矩阵
+	// 利用makeIDX();将点加入到vector：allPoints，然后建立residual的主导帧id和目标帧id，但是此时未在第一帧中加入点。
+	// 建立过程为：遍历EFFrame，遍历EFPoint，加入到vector：allPoints，遍历EFResidual，建立hostIDX和targetIDX
 	makeIDX();				// 设置ID
 
 
@@ -493,6 +506,8 @@ EFFrame* EnergyFunctional::insertFrame(FrameHessian* fh, CalibHessian* Hcalib)
 }
 
 //@ 向能量函数中插入一个点, 放入对应的EFframe
+// 在insertPoint()中会生成 PointHessian 类型的点 ph 的 EFPoint 类型的 efp ， efp ，包含点 ph 以及其主导帧 host
+// 按照push_back的先后顺序对 idxInPoints 进行编号， nPoints 表示后端优化中点的数量。
 EFPoint* EnergyFunctional::insertPoint(PointHessian* ph)
 {
 	EFPoint* efp = new EFPoint(ph, ph->host->efFrame);
@@ -720,6 +735,7 @@ void EnergyFunctional::marginalizePointsF()
 }
 
 //@ 直接丢掉点, 不边缘化
+// 利用dropPointsF()函数执行removePoint(p)，然后重新makeIDX()
 void EnergyFunctional::dropPointsF()
 {
 
@@ -857,6 +873,7 @@ void EnergyFunctional::orthogonalize(VecX* b, MatXX* H)
 }
 
 //@ 计算正规方程, 并求解
+// 进行相关矩阵的求取： HA_top ， bA_top ， HL_top ， bL_top ， H_sc ， b_sc 。
 void EnergyFunctional::solveSystemF(int iteration, double lambda, CalibHessian* HCalib)
 {
 	if(setting_solverMode & SOLVER_USE_GN) lambda=0;			// 不同的位控制不同的模式
@@ -1038,6 +1055,8 @@ void EnergyFunctional::solveSystemF(int iteration, double lambda, CalibHessian* 
 }
 
 //@ 设置EFFrame, EFPoint, EFResidual对应的 ID 号
+// 利用makeIDX();将点加入到vector：allPoints，然后建立residual的主导帧id和目标帧id，但是此时未在第一帧中加入点。
+// 建立过程为：遍历EFFrame，遍历EFPoint，加入到vector：allPoints，遍历EFResidual，建立hostIDX和targetIDX
 void EnergyFunctional::makeIDX()
 {
 	// 重新赋值ID

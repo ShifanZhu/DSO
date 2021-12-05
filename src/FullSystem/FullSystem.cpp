@@ -908,6 +908,7 @@ void FullSystem::addActiveFrame( ImageAndExposure* image, int id )
 		//[ ***step 4.2*** ] 跟踪成功, 完成初始化
 			initializeFromInitializer(fh); //真正的初始化操作
 			lock.unlock();
+			// 利用deliverTrackedFrame(fh, true)对当前图像帧处理，实现关键帧和非关键帧的区分(当前为true，将当前帧作为关键帧进行处理)
 			deliverTrackedFrame(fh, true); // 前端后端的数据接口，进行数据通讯
 		}
 		else
@@ -975,6 +976,7 @@ void FullSystem::addActiveFrame( ImageAndExposure* image, int id )
 }
 
 //@ 把跟踪的帧, 给到建图线程, 设置成关键帧或非关键帧
+// 利用deliverTrackedFrame(fh, true)对当前图像帧处理，实现关键帧和非关键帧的区分(当前为true，将当前帧作为关键帧进行处理)
 void FullSystem::deliverTrackedFrame(FrameHessian* fh, bool needKF)
 {
 
@@ -997,6 +999,7 @@ void FullSystem::deliverTrackedFrame(FrameHessian* fh, bool needKF)
 
 
 
+		// 当前为true，将当前帧作为关键帧进行处理
 		if(needKF) makeKeyFrame(fh);
 		else makeNonKeyFrame(fh);
 	}
@@ -1127,21 +1130,32 @@ void FullSystem::makeKeyFrame( FrameHessian* fh)
 		//? 为啥要从shell来设置 ???   答: 因为shell不删除, 而且参考帧还会被优化, shell是桥梁
 		boost::unique_lock<boost::mutex> crlock(shellPoseMutex);
 		assert(fh->shell->trackingRef != 0);
+		// 1.获取当前帧的camToWorld，并对当前帧的状态进行setEvalPT_scaled()处理。
 		fh->shell->camToWorld = fh->shell->trackingRef->camToWorld * fh->shell->camToTrackingRef;
+		// 在setEvalPT_scaled()函数里，定义了一个10维向量： initial_state ，并赋值。然后利用函数 setStateScaled()对向量进行处理：
+		// 乘以相关参数（SCALE_xxxxx），计算了PRE_worldToCam和PRE_camToWorld。
+		// 然后利用setStateZero()函数对上一步计算的state进行处理：计算了一些扰动量以及nullspace。
 		fh->setEvalPT_scaled(fh->shell->camToWorld.inverse(),fh->shell->aff_g2l); // 待优化值
 	}
 
 //[ ***step 2*** ] 把这一帧来更新之前帧的未成熟点
+	// 2.traceNewCoarse(fh);利用当前帧对所有的frameHessians的未成熟点ImmaturePoint进行跟踪，优化其逆深度。注意此时的frameHessians里
+	// 只有第一帧，且其生成的未成熟点已全部加入到优化中，因此此时这个函数相当于未运行。（后面再分析）
 	traceNewCoarse(fh); // 更新未成熟点(深度未收敛的点)
 
 	boost::unique_lock<boost::mutex> lock(mapMutex); // 建图锁
 
 //[ ***step 3*** ] 选择要边缘化掉的帧
 	// =========================== Flag Frames to be Marginalized. =========================
+	// 3.判断当前帧是否边缘化并标记：关键帧是否边缘化的判断条件可以从论文中得到，这里不说了，
+	// 若当前帧需要边缘化，则fh->flaggedForMarginalization = true; flagged++;
 	flagFramesForMarginalization(fh);  // TODO 这里没用最新帧，可以改进下
 
 //[ ***step 4*** ] 加入到关键帧序列
 	// =========================== add New Frame to Hessian Struct. =========================
+	// 4.将当前帧加入到滑窗优化中，（注意，仅对关键帧执行）
+	// 当前帧加入到 vector：frameHessians 和 allKeyFramesHistory ，并利用 insertFrame() 加入到优化中，和 setPrecalcValues() 进行一些预计算。
+	// （与对一帧的处理一样，区别在于 frameHessians 里的帧的数量）
 	fh->idx = frameHessians.size();
 	frameHessians.push_back(fh);
 	fh->frameID = allKeyFramesHistory.size();
@@ -1152,6 +1166,9 @@ void FullSystem::makeKeyFrame( FrameHessian* fh)
 
 
 //[ ***step 5*** ] 构建之前关键帧与当前帧fh的残差(旧的)
+	// 5.利用当前关键帧建立残差项residual.
+	// 建立过程为：遍历所有frameHessians，（里面包含当前帧，因此会跳过当前帧）遍历帧的所有pointHessians，建立类PointFrameResidual的对象r，
+	// 设置r的状态，并push_back到点的residuals，利用insertResidual添加到滑窗优化中，并设置ph->lastResiduals[]。
 	// =========================== add new residuals for old points =========================
 	int numFwdResAdde=0;
 	for(FrameHessian* fh1 : frameHessians)		// go through all active frames
@@ -1172,13 +1189,18 @@ void FullSystem::makeKeyFrame( FrameHessian* fh)
 
 
 //[ ***step 6*** ] 激活所有关键帧上的部分未成熟点(构造新的残差)
+	// 6.activatePointsMT();利用当前帧的信息优化所有 frameHessians 的 ImmaturePoint ，注意此时 frameHessians 里面包含了当前帧，因此在遍历的时候会跳过。
+	// 同样，此时由于第一帧中没有未成熟点，此函数相当于未执行。
 	// =========================== Activate Points (& flag for marginalization). =========================
 	activatePointsMT();
+	// 利用makeIDX()函数重新建立idx。
 	ef->makeIDX();  // ? 为啥要重新设置ID呢, 是因为加新的帧了么
 
 
 
 //[ ***step 7*** ] 对滑窗内的关键帧进行优化(说的轻松, 里面好多问题)
+	// 7.后端滑窗优化
+	// 首先获取当前帧的frameEnergyTH，然后利用optimize()函数进行优化，优化结果为
 	// =========================== OPTIMIZE ALL =========================
 
 	fh->frameEnergyTH = frameHessians.back()->frameEnergyTH;  // 这两个不是一个值么???
@@ -1190,6 +1212,8 @@ void FullSystem::makeKeyFrame( FrameHessian* fh)
 
 	// =========================== Figure Out if INITIALIZATION FAILED =========================
 	//* 所有的关键帧数小于4，认为还是初始化，此时残差太大认为初始化失败
+	// 8.根据优化返回的结果rmse和allKeyFramesHistory.size()判断是否初始化成功。此时仅有2个关键帧，
+	// 若rmse大于20*benchmark_initializerSlackFactor，则初始化失败。
 	if(allKeyFramesHistory.size() <= 4)
 	{
 		if(allKeyFramesHistory.size()==2 && rmse > 20*benchmark_initializerSlackFactor)
@@ -1218,6 +1242,7 @@ void FullSystem::makeKeyFrame( FrameHessian* fh)
 //[ ***step 8*** ] 去除外点, 把最新帧设置为参考帧
 //TODO 是否可以更加严格一些
 	// =========================== REMOVE OUTLIER =========================
+	// 9.removeOutliers();对未构成residual的残差点进行处理：利用dropPointsF()函数执行removePoint(p)，然后重新makeIDX();
 	removeOutliers();
 
 
@@ -1226,6 +1251,8 @@ void FullSystem::makeKeyFrame( FrameHessian* fh)
 	{
 		boost::unique_lock<boost::mutex> crlock(coarseTrackerSwapMutex);
 		coarseTracker_forNewKF->makeK(&Hcalib);  // 更新了内参, 因此重新make
+		// 10.setCoarseTrackingRef(frameHessians) 设置当前帧为下次跟踪的参考帧，并通过 makeCoarseDepthL0() 将目标帧是当前帧的点(即构建残差时投影到当前帧的点)
+		// 优化的逆深度建立 idepth[0]， weightSums[0]，然后通过对下层采样获取金字塔各层的 idepth_l = idepth[lvl] 和 weightSums_l = weightSums[lvl]。
 		coarseTracker_forNewKF->setCoarseTrackingRef(frameHessians);
 
 
@@ -1243,6 +1270,8 @@ void FullSystem::makeKeyFrame( FrameHessian* fh)
 
 //[ ***step 9*** ] 标记删除和边缘化的点, 并删除&边缘化
 	// =========================== (Activate-)Marginalize Points =========================
+	// 11.标记需要边缘化的点并对其进行边缘化操作，前面已经将未构成residual的点进行了删除，此处为了计算的实时性，会对满足一定条件的点进行边缘化处理
+	// （具体的不说了，后面会考虑写一篇专门介绍边缘化的博客）。
 	flagPointsForRemoval();
 	ef->dropPointsF();  // 扔掉drop的点
 	// 每次设置线性化点都会更新零空间
@@ -1257,6 +1286,7 @@ void FullSystem::makeKeyFrame( FrameHessian* fh)
 
 //[ ***step 10*** ] 生成新的点
 	// =========================== add new Immature points & new residuals =========================
+	// 12.makeNewTraces(fh, 0);对当前帧利用 pixelSelector->makeMaps()进行选点操作，并且生成 ImmaturePoint ， push_back到 newFrame->immaturePoints。
 	makeNewTraces(fh, 0);
 
 
@@ -1274,6 +1304,7 @@ void FullSystem::makeKeyFrame( FrameHessian* fh)
 	// =========================== Marginalize Frames =========================
 //[ ***step 11*** ] 边缘化掉关键帧
 	//* 边缘化一帧要删除or边缘化上面所有点
+	// 13.边缘化关键帧：marginalizeFrame(frameHessians[i]);，边缘化前面标记的关键帧。（同样，具体细节利用边缘化的博客来分析。）
 	for(unsigned int i=0;i<frameHessians.size();i++)
 		if(frameHessians[i]->flaggedForMarginalization)
 			{marginalizeFrame(frameHessians[i]); i=0;}
@@ -1303,17 +1334,23 @@ void FullSystem::initializeFromInitializer(FrameHessian* newFrame)
 	frameHessians.push_back(firstFrame);  	// 地图内关键帧容器
 	firstFrame->frameID = allKeyFramesHistory.size();  	// 所有历史关键帧id
 	allKeyFramesHistory.push_back(firstFrame->shell); 	// 所有历史关键帧
+	// 第一帧加入优化：
+	// 利用ef->insertFrame(firstFrame, &Hcalib)，将第一帧加入到优化后端energyFunction
 	ef->insertFrame(firstFrame, &Hcalib);
+	//在setPrecalcValues();会建立所有帧的目标帧，并且进行主导帧和目标帧之间相对状态的预计算，实现的函数见函数.set()，
+	// 计算的量有：leftToLeft，PRE_RTll，PRE_tTll，PRE_KRKiTll，PRE_RKiTll，PRE_KtTll，PRE_aff_mode，PRE_b0_mode。
 	setPrecalcValues();   		// 设置相对位姿预计算值
 
 	//int numPointsTotal = makePixelStatus(firstFrame->dI, selectionMap, wG[0], hG[0], setting_desiredDensity);
 	//int numPointsTotal = pixelSelector->makeMaps(firstFrame->dIp, selectionMap,setting_desiredDensity);
 
+	// 初始第一帧的各种点，包括：pointHessians，pointHessiansMarginalized，pointHessiansOut
 	firstFrame->pointHessians.reserve(wG[0]*hG[0]*0.2f); // 20%的点数目
 	firstFrame->pointHessiansMarginalized.reserve(wG[0]*hG[0]*0.2f); // 被边缘化
 	firstFrame->pointHessiansOut.reserve(wG[0]*hG[0]*0.2f); // 丢掉的点
 
 	//[ ***step 2*** ] 求出平均尺度因子
+	// 利用前面帧对第一帧的跟踪更新的逆深度，计算尺度因子 rescaleFactor(相对的)，并且根据相关参数设置第一帧保持的点的数目：keepPercentage
 	float sumID=1e-5, numID=1e-5;
 	for(int i=0;i<coarseInitializer->numPoints[0];i++)
 	{
@@ -1336,6 +1373,10 @@ void FullSystem::initializeFromInitializer(FrameHessian* newFrame)
 	{
 		if(rand()/(float)RAND_MAX > keepPercentage) continue; // 如果提取的点比较少, 不执行; 提取的多, 则随机干掉
 
+		// 将第一帧的未成熟点生成PointHessian，并且设置PointHessian的相关参数，存储到第一帧的容器pointHessians中，然后
+		// 利用insertPoint()加入到后端优化中。注意：前面分析对第一帧选点时说到是在每层图像金字塔都会进行选点，但是此时
+		// 生成PointHessian仅利用第0层（即原始图像层）选取的点。
+		// 在应用构造函数创建类ImmaturePoint的对象pt时，会计算点的权重：weights[idx]。
 		Pnt* point = coarseInitializer->points[0]+i;
 		ImmaturePoint* pt = new ImmaturePoint(point->u+0.5f,point->v+0.5f,firstFrame,point->my_type, &Hcalib);
 
@@ -1353,11 +1394,14 @@ void FullSystem::initializeFromInitializer(FrameHessian* newFrame)
 		ph->setPointStatus(PointHessian::ACTIVE);	// 激活点
 
 		firstFrame->pointHessians.push_back(ph);
+		// 在insertPoint()中会生成PointHessian类型的点ph的EFPoint类型的efp，efp，包含点ph以及其主导帧host。
+		// 按照push_back的先后顺序对idxInPoints进行编号， nPoints表示后端优化中点的数量。
 		ef->insertPoint(ph);
 	}
 
 
 	//[ ***step 4*** ] 设置第一帧和最新帧的待优化量, 参考帧
+	// 通过前面所有帧对第一帧的track以及optimization得到第一帧到第八帧的位姿： firstToNew ，并对平移部分利用尺度因子进行处理。
 	SE3 firstToNew = coarseInitializer->thisToNext;
 	firstToNew.translation() /= rescaleFactor;
 
@@ -1365,6 +1409,7 @@ void FullSystem::initializeFromInitializer(FrameHessian* newFrame)
 	// really no lock required, as we are initializing.
 	{
 		boost::unique_lock<boost::mutex> crlock(shellPoseMutex);
+		// 设置第一帧和第八帧的相关参数
 		firstFrame->shell->camToWorld = SE3();		// 空的初值?
 		firstFrame->shell->aff_g2l = AffLight(0,0);
 		firstFrame->setEvalPT_scaled(firstFrame->shell->camToWorld.inverse(),firstFrame->shell->aff_g2l);
@@ -1379,11 +1424,13 @@ void FullSystem::initializeFromInitializer(FrameHessian* newFrame)
 
 	}
 
+	// 初始化成功：initialized=true;至此初始化已经成功了，接下的操作是将第八帧作为关键帧进行处理。
 	initialized=true;
 	printf("INITIALIZE FROM INITIALIZER (%d pts)!\n", (int)firstFrame->pointHessians.size());
 }
 
 //@ 提取新的像素点用来跟踪
+// 12.makeNewTraces(fh, 0);对当前帧利用 pixelSelector->makeMaps()进行选点操作，并且生成 ImmaturePoint ， push_back到 newFrame->immaturePoints
 void FullSystem::makeNewTraces(FrameHessian* newFrame, float* gtDepth)
 {
 	pixelSelector->allowFast = true;  //bug 没卵用
@@ -1413,15 +1460,19 @@ void FullSystem::makeNewTraces(FrameHessian* newFrame, float* gtDepth)
 
 //* 计算frameHessian的预计算值, 和状态的delta值
 //@ 设置关键帧之间的关系
+// 在setPrecalcValues();会建立所有帧的目标帧，并且进行主导帧和目标帧之间相对状态的预计算，实现的函数见函数.set()，
+// 计算的量有：leftToLeft，PRE_RTll，PRE_tTll，PRE_KRKiTll，PRE_RKiTll，PRE_KtTll，PRE_aff_mode，PRE_b0_mode。
 void FullSystem::setPrecalcValues()
 {
 	for(FrameHessian* fh : frameHessians)
 	{
 		fh->targetPrecalc.resize(frameHessians.size()); // 每个目标帧预运算容器, 大小是关键帧数
 		for(unsigned int i=0;i<frameHessians.size();i++)  //? 还有自己和自己的???
+			// 计算的量有：leftToLeft，PRE_RTll，PRE_tTll，PRE_KRKiTll，PRE_RKiTll，PRE_KtTll，PRE_aff_mode，PRE_b0_mode。
 			fh->targetPrecalc[i].set(fh, frameHessians[i], &Hcalib); // 计算Host 与 target之间的变换关系
 	}
 
+	// 然后利用：ef->setDeltaF(&Hcalib);建立相关量的微小扰动，包括：adHTdeltaF[idx]，f->delta，f->delta_prior。
 	ef->setDeltaF(&Hcalib);
 }
 

@@ -75,6 +75,13 @@ PointFrameResidual::PointFrameResidual(PointHessian* point_, FrameHessian* host_
 
 
 //@ 求对各个参数的导数, 和能量值
+// linearize()：首先获取当前残差的主导帧和目标帧之间的一些预计算量，点的灰度值和权重，然后通过投影函数 projectPoint()将点投影到目标帧，并判断投影位置，
+// 若不满足要求则设置： state_NewState = ResState::OOB。对满足要求的点进行导数计算：这里不仅计算了对点的逆深度的导数，相对位姿的导数，还计算了对
+// 相机内参的导数，导数推导见博客直接法光度误差导数推导和DSOwindowed optimization 代码 (1)。
+// 注意，此处计算的导数是投影点对这些优化变量的导数，并不是残差对他们的导数。接下来考虑像素点的 Pattern 计算残差项和 energyLeft ，并计算残差对优化变量的导数，
+// 并且进行用于构建高斯牛顿方程的相关计算。对 energyLeft 进行判断，若过大（大于std::max<float>(host->frameEnergyTH, target->frameEnergyTH)）则
+// 设置 state_NewState = ResState::OUTLIER;并设置 energyLeft 为两帧的 frameEnergyTH 的最大值。(*stats)[0] 存储所有残差项计算
+// 的 energyLeft 之和，然后赋值给 lastEnergyP
 double PointFrameResidual::linearize(CalibHessian* HCalib)
 {
 	state_NewEnergyWithOutlier=-1;
@@ -82,6 +89,7 @@ double PointFrameResidual::linearize(CalibHessian* HCalib)
 	if(state_state == ResState::OOB)
 		{ state_NewState = ResState::OOB; return state_energy; }
 
+	// 首先获取当前残差的主导帧和目标帧之间的一些预计算量，点的灰度值和权重
 	FrameFramePrecalc* precalc = &(host->targetPrecalc[target->idx]); // 得到这个目标帧在主帧上的一些预计算参数
 	float energyLeft=0;			// 
 	const Eigen::Vector3f* dIl = target->dI;
@@ -106,9 +114,13 @@ double PointFrameResidual::linearize(CalibHessian* HCalib)
 		float Ku, Kv;
 		Vec3f KliP;
 		
+		// 然后通过投影函数 projectPoint()将点投影到目标帧，并判断投影位置，若不满足要求则设置： state_NewState = ResState::OOB。
 		if(!projectPoint(point->u, point->v, point->idepth_zero_scaled, 0, 0,HCalib,
 				PRE_RTll_0,PRE_tTll_0, drescale, u, v, Ku, Kv, KliP, new_idepth))
 			{ state_NewState = ResState::OOB; return state_energy; } // 投影不在图像里, 则返回OOB
+
+		// 对满足要求的点进行导数计算：这里不仅计算了对点的逆深度的导数，相对位姿的导数，还计算了对相机内参的导数
+		// 注意，此处计算的导数是投影点对这些优化变量的导数，并不是残差对他们的导数。
 
 		centerProjectedTo = Vec3f(Ku, Kv, new_idepth);
 
@@ -193,6 +205,8 @@ double PointFrameResidual::linearize(CalibHessian* HCalib)
 	float JabJab_00=0, JabJab_01=0, JabJab_11=0;
 
 	float wJI2_sum = 0;
+
+	//接下来考虑像素点的 Pattern 计算残差项和 energyLeft ，并计算残差对优化变量的导数，并且进行用于构建高斯牛顿方程的相关计算。
 
 	for(int idx=0;idx<patternNum;idx++)
 	{
@@ -287,6 +301,9 @@ double PointFrameResidual::linearize(CalibHessian* HCalib)
 
 	state_NewEnergyWithOutlier = energyLeft;
 	
+	// 对energyLeft进行判断，若过大（大于std::max<float>(host->frameEnergyTH, target->frameEnergyTH)）则
+	// 设置state_NewState = ResState::OUTLIER;并设置 energyLeft 为两帧的frameEnergyTH的最大值。
+	// (*stats)[0] 存储所有残差项计算的 energyLeft 之和，然后赋值给 lastEnergyP。
 	//* 大于阈值则视为有外点
 	if(energyLeft > std::max<float>(host->frameEnergyTH, target->frameEnergyTH) || wJI2_sum < 2)
 	{

@@ -54,7 +54,9 @@ void FullSystem::linearizeAll_Reductor(bool fixLinearization, std::vector<PointF
 {
 	for(int k=min;k<max;k++)
 	{
+		// 遍历所有 activeResiduals ，执行：(*stats)[0] += r->linearize(&Hcalib);
 		PointFrameResidual* r = activeResiduals[k];
+		// (*stats)[0]存储所有残差项计算的 energyLeft 之和，然后赋值给 lastEnergyP
 		(*stats)[0] += r->linearize(&Hcalib); // 线性化得到能量
 
 		if(fixLinearization) // 固定线性化（优化后执行）
@@ -88,6 +90,8 @@ void FullSystem::linearizeAll_Reductor(bool fixLinearization, std::vector<PointF
 }
 
 //@ 把线性化结果传给能量函数efResidual, copyJacobians [true: 更新jacobian] [false: 不更新]
+// （4）applyRes_Reductor():利用 activeResiduals[k]->applyRes(true);对 state_NewState == ResState::IN 的残差项进行处理：
+// 设置 efResidual->isActiveAndIsGoodNEW=true;，利用 takeDataF()计算 JI_JI_Jd ， JpJdF
 void FullSystem::applyRes_Reductor(bool copyJacobians, int min, int max, Vec10* stats, int tid)
 {
 	for(int k=min;k<max;k++)
@@ -95,6 +99,7 @@ void FullSystem::applyRes_Reductor(bool copyJacobians, int min, int max, Vec10* 
 }
 
 //@ 计算当前最新帧的能量阈值, 太玄学了
+// 设置当前帧的 frameEnergyTH
 void FullSystem::setNewFrameEnergyTH()
 {
 
@@ -153,6 +158,7 @@ Vec3 FullSystem::linearizeAll(bool fixLinearization)
 	double num = 0;
 
 
+	// 定义vector：toRemove，（应该是用于边缘化，在fixLinearization=true时会用到）
 	std::vector<PointFrameResidual*> toRemove[NUM_THREADS];
 	for(int i=0;i<NUM_THREADS;i++) toRemove[i].clear();
 
@@ -165,11 +171,15 @@ Vec3 FullSystem::linearizeAll(bool fixLinearization)
 	else
 	{
 		Vec10 stats;
+		// 执行 linearizeAll_Reductor()
 		linearizeAll_Reductor(fixLinearization, toRemove, 0,activeResiduals.size(),&stats,0);
+		// (*stats)[0]存储所有残差项计算的energyLeft之和，然后赋值给lastEnergyP。
 		lastEnergyP = stats[0];
 	}
 
 
+	// 执行 setNewFrameEnergyTH()
+	// 设置当前帧的frameEnergyTH
 	setNewFrameEnergyTH();
 
 
@@ -393,6 +403,7 @@ void FullSystem::loadSateBackup()
 }
 
 //@ 计算能量, 计算的是绝对的能量
+// 利用ef->calcMEnergyF()函数计算并返回
 double FullSystem::calcMEnergy()
 {
 	if(setting_forceAceptStep) return 0;
@@ -418,9 +429,13 @@ void FullSystem::printOptRes(const Vec3 &res, double resL, double resM, double r
 }
 
 //@ 对当前的关键帧进行GN优化
+// optimize()函数解析：
 float FullSystem::optimize(int mnumOptIts)
 {
 
+	// （1）首先需要明确当前通过insertPoint ，insertFrame，insertResidual加入到优化中的数据，目前只包括第一帧，第一帧的Point，
+	// 第八帧，以第一帧为主导帧，第八帧为目标帧的residual。
+	// 确定迭代次数：当前frameHessians.size()=2，迭代次数为20。
 	if(frameHessians.size() < 2) return 0;
 	if(frameHessians.size() < 3) mnumOptIts = 20; // 迭代次数
 	if(frameHessians.size() < 4) mnumOptIts = 15;
@@ -432,6 +447,8 @@ float FullSystem::optimize(int mnumOptIts)
 
 	// get statistics and active residuals.
 //[ ***step 1*** ] 找出未线性化(边缘化)的残差, 加入activeResiduals
+// （2）遍历所有帧的所有点的所有 residual ，将 isLinearized 为false（利用构造函数进行构造时，该值均为false）的残差加入到 activeResiduals 中。
+// 然后利用函数resetOOB()reset残差项，设置的变量有：
 	activeResiduals.clear();
 	int numPoints = 0;
 	int numLRes = 0;
@@ -443,6 +460,7 @@ float FullSystem::optimize(int mnumOptIts)
 				if(!r->efResidual->isLinearized) // 没有求线性误差
 				{
 					activeResiduals.push_back(r);  // 新加入的残差
+					// 然后利用函数resetOOB()reset残差项
 					r->resetOOB(); // residual状态重置
 				}
 				else
@@ -456,15 +474,21 @@ float FullSystem::optimize(int mnumOptIts)
 
 //[ ***step 2*** ] 线性化activeResiduals的残差, 计算边缘化的能量值 (然而这里都设成0了)
 	//* 线性化, 参数: [true是进行固定线性化, 并去掉不好的残差] [false不进行固定线性化]
+	// （3）计算Energy：lastEnergy，lastEnergyL，lastEnergyM，并进行相关导数的求取。
 	Vec3 lastEnergy = linearizeAll(false);  
 	//? 和linearizeAll计算的有啥区别
+	// 利用ef->calcLEnergyF_MT()函数计算并返回计算值
 	double lastEnergyL = calcLEnergy(); // islinearized的量的能量
+	// 利用ef->calcMEnergyF()函数计算并返回
 	double lastEnergyM = calcMEnergy(); // HM部分的能量
+	// 上述两个函数都是利用delta(前面建立的扰动)进行计算，为什么要这么做？
 
 
 
 
 	// 把线性化的结果给efresidual
+	// （4） applyRes_Reductor():利用 activeResiduals[k]->applyRes(true);对 state_NewState == ResState::IN 的残差项进行处理：
+	// 设置 efResidual->isActiveAndIsGoodNEW=true;，利用 takeDataF()计算 JI_JI_Jd ， JpJdF
 	if(multiThreading)
 		treadReduce.reduce(boost::bind(&FullSystem::applyRes_Reductor, this, true, _1, _2, _3, _4), 0, activeResiduals.size(), 50);
 	else
@@ -477,10 +501,13 @@ float FullSystem::optimize(int mnumOptIts)
         printOptRes(lastEnergy, lastEnergyL, lastEnergyM, 0, 0, frameHessians.back()->aff_g2l().a, frameHessians.back()->aff_g2l().b);
     }
 
+	// （5）debugPlotTracking();这个函数的作用不太懂。
 	debugPlotTracking();
 
 
 //[ ***step 3*** ] 迭代求解
+	// （6）开始迭代优化，利用for循环实现
+	// 相关初始参数设置
 	double lambda = 1e-1;
 	float stepsize=1;
 	VecX previousX = VecX::Constant(CPARS+ 8*frameHessians.size(), NAN);
@@ -488,10 +515,10 @@ float FullSystem::optimize(int mnumOptIts)
 	{
 		//[ ***step 3.1*** ] 备份当前的各个状态值
 		// solve!
-		backupState(iteration!=0);
+		backupState(iteration!=0); // 存储当前状态，误差发散情况下用于状态的恢复。
 		//solveSystemNew(0);
 		//[ ***step 3.2*** ] 求解系统
-		solveSystem(iteration, lambda);
+		solveSystem(iteration, lambda); // 进行优化的求解，获取迭代更新量。
 		double incDirChange = (1e-20 + previousX.dot(ef->lastX)) / (1e-20 + previousX.norm() * ef->lastX.norm()); // 两次下降方向的点积（dot/模长）
 		previousX = ef->lastX;
 
@@ -507,6 +534,7 @@ float FullSystem::optimize(int mnumOptIts)
 		}
 		//[ ***step 3.3*** ] 更新状态
 		//* 更新变量, 判断是否停止
+		// 进行迭代增量的更新并对迭代更新增量进行判断，得到canbreak，即增量过小即退出优化。
 		bool canbreak = doStepFromBackup(stepsize,stepsize,stepsize,stepsize,stepsize);
 
 
@@ -517,6 +545,7 @@ float FullSystem::optimize(int mnumOptIts)
 
 		// eval new energy!
 		//* 更新后重新计算
+		// 计算增量更新之后的energy
 		Vec3 newEnergy = linearizeAll(false);
 		double newEnergyL = calcLEnergy();
 		double newEnergyM = calcMEnergy();
@@ -536,6 +565,8 @@ float FullSystem::optimize(int mnumOptIts)
             printOptRes(newEnergy, newEnergyL, newEnergyM , 0, 0, frameHessians.back()->aff_g2l().a, frameHessians.back()->aff_g2l().b);
         }
 //[ ***step 4*** ] 判断是否接受这次计算
+		// 如果energy减小则接受更新，在 applyRes_Reductor() 处理，并且将新计算的energy赋值给last，然后继续进行迭代，在达到迭代次数以及增量过小时退出。
+		// 如果energy增大了则利用 loadSateBackup() ;加载未更新前的状态，调整lambda的值继续迭代优化。
 		if(setting_forceAceptStep || (newEnergy[0] +  newEnergy[1] +  newEnergyL + newEnergyM <
 				lastEnergy[0] + lastEnergy[1] + lastEnergyL + lastEnergyM))
 		{  
@@ -566,6 +597,7 @@ float FullSystem::optimize(int mnumOptIts)
 
 //[ ***step 5*** ] 把最新帧的位姿设为线性化点
 	//* 最新一帧的位姿设为线性化点, 0-5是位姿增量因此是0, 6-7是值, 直接赋值
+	// （7）在迭代优化之后，利用优化的结果重新计算相关量
 	Vec10 newStateZero = Vec10::Zero();
 	newStateZero.segment<2>(6) = frameHessians.back()->get_state().segment<2>(6); 
 
@@ -579,6 +611,8 @@ float FullSystem::optimize(int mnumOptIts)
 
 
 	// 更新之后的能量
+	// 注意此时参数为true。因此，此函数在执行时会进行固定线性化点的操作，同时会将 r->efResidual->isActive() 为false的残差项加入 toRemove。
+	// （猜测应该是跟边缘化有关）
 	lastEnergy = linearizeAll(true);
 
 
@@ -591,6 +625,8 @@ float FullSystem::optimize(int mnumOptIts)
     }
 
 
+	// （9）优化的收尾工作：判断是否跟踪失败，将 setEvalPT() 计算的 PRE_camToWorld 赋值给： camToWorld ，
+	// 返回给 rmse 的值为：sqrtf((float)(lastEnergy[0] / (patternNum*ef->resInA)))。
 	statistics_lastFineTrackRMSE = sqrtf((float)(lastEnergy[0] / (patternNum*ef->resInA)));
 
 	if(calibLog != 0)
@@ -626,6 +662,9 @@ float FullSystem::optimize(int mnumOptIts)
 
 
 //@ 求解系统
+// 进行优化的求解，获取迭代更新量。首先利用 getNullspaces() 获取 nullspace ，然后利用 ef->solveSystemF() 进行相关矩阵的
+// 求取： HA_top ， bA_top ， HL_top ， bL_top ， H_sc ， b_sc 。
+// 关于这一部分可以参考博客：DSO windowed optimization 代码 (2)，DSO windowed optimization 代码 (3)，DSO windowed optimization 代码 (4)。
 void FullSystem::solveSystem(int iteration, double lambda)
 {
 	ef->lastNullspaces_forLogging = getNullspaces(
@@ -639,6 +678,7 @@ void FullSystem::solveSystem(int iteration, double lambda)
 
 
 //@ 计算能量E (chi2), 是相对的
+// 利用ef->calcLEnergyF_MT()函数计算并返回计算值
 double FullSystem::calcLEnergy()
 {
 	if(setting_forceAceptStep) return 0;
@@ -670,6 +710,7 @@ void FullSystem::removeOutliers()
 			}
 		}
 	}
+	// 对未构成residual的残差点进行处理：利用dropPointsF()函数执行removePoint(p)，然后重新makeIDX()
 	ef->dropPointsF();
 }
 

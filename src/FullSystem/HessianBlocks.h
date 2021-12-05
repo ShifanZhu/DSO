@@ -227,6 +227,10 @@ struct FrameHessian
 
 
 	//* 设置当前位姿, 光度仿射系数, FEJ点
+	// 在setEvalPT_scaled()函数里，定义了一个10维向量： initial_state ，并赋值。然后利用函数 setStateScaled()对向量进行处理：
+	// 乘以相关参数（SCALE_xxxxx），计算了PRE_worldToCam和PRE_camToWorld。
+	// 然后利用setStateZero()函数对上一步计算的state进行处理：计算了一些扰动量以及nullspace。
+	// （这个地方处理的作用以及为什么要这样做还不太清楚。）
 	inline void setEvalPT_scaled(const SE3 &worldToCam_evalPT, const AffLight &aff_g2l)
 	{
 		Vec10 initial_state = Vec10::Zero();
