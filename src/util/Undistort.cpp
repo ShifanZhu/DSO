@@ -87,6 +87,7 @@ PhotometricUndistorter::PhotometricUndistorter(
 		std::string line;
 		std::getline( f, line );
 		std::istringstream l1i( line );
+		// 读取pcalib.txt 文件
 		// begin迭代器, end迭代器来初始化
 		std::vector<float> Gvec = std::vector<float>( std::istream_iterator<float>(l1i), std::istream_iterator<float>() );
 
@@ -100,7 +101,7 @@ PhotometricUndistorter::PhotometricUndistorter(
             return;
         }
 
-
+				// 读取的文件存储到 G[i]里面，并且数据需要满足严格单调递增。
         for(int i=0;i<GDepth;i++) G[i] = Gvec[i];
 
         for(int i=0;i<GDepth-1;i++)
@@ -112,6 +113,7 @@ PhotometricUndistorter::PhotometricUndistorter(
 			}
 		}
 		// 对响应值进行标准化
+		// 然后对其进行以下转化：使数据在0-255之间。
 		float min=G[0];
         float max=G[GDepth-1];
         for(int i=0;i<GDepth;i++) G[i] = 255.0 * (G[i] - min) / (max-min);			// make it to 0..255 => 0..255.
@@ -125,6 +127,7 @@ PhotometricUndistorter::PhotometricUndistorter(
 
 
 	// 读取图像, 为什么要读一个16位, 一个8位的???
+	// 读取vignette.png：采用了16位和8位的两种读取方法。
 	printf("Reading Vignette Image from %s\n",vignetteImage.c_str());
 	MinimalImage<unsigned short>* vm16 = IOWrap::readImageBW_16U(vignetteImage.c_str());
 	MinimalImageB* vm8 = IOWrap::readImageBW_8U(vignetteImage.c_str());
@@ -146,8 +149,9 @@ PhotometricUndistorter::PhotometricUndistorter(
 		for(int i=0;i<w*h;i++)
 			if(vm16->at(i) > maxV) maxV = vm16->at(i);
 
+		// 并对结果进行了归一化处理，并且计算了inv。
 		for(int i=0;i<w*h;i++)
-			vignetteMap[i] = vm16->at(i) / maxV;
+			vignetteMap[i] = vm16->at(i) / maxV; // 归一化处理
 	}
 	else if(vm8 != 0)
 	{
@@ -180,7 +184,7 @@ PhotometricUndistorter::PhotometricUndistorter(
 
 	// 求逆
 	for(int i=0;i<w*h;i++)
-		vignetteMapInv[i] = 1.0f / vignetteMap[i];
+		vignetteMapInv[i] = 1.0f / vignetteMap[i]; //求inv
 
 
 	printf("Successfully read photometric calibration!\n");
@@ -219,6 +223,8 @@ void PhotometricUndistorter::unMapFloatImage(float* image)
 	}
 }
 
+// 在undistort函数里面有：photometricUndist->processFrame<T>(image_raw->data, exposure, factor);
+// 执行此函数进行光度校准。执行完之后，photometricUndist->output存储的是光度校准之后的图像信息，还包括时间戳以及曝光时间。
 template<typename T>
 void PhotometricUndistorter::processFrame(T* image_in, float exposure_time, float factor)
 {
@@ -227,6 +233,12 @@ void PhotometricUndistorter::processFrame(T* image_in, float exposure_time, floa
 	assert(output->w == w && output->h == h);
 	assert(data != 0);
 
+	/*
+		注意：此处会根据变量：setting_photometricCalibration选择不同的校准形式：
+		0 = nothing.
+		1 = apply inv. response.
+		2 = apply inv. response & remove V.
+	*/
 	// 没有光度模型
 	if(!valid || exposure_time <= 0 || setting_photometricCalibration==0) // disable full photometric calibration.
 	{
@@ -241,13 +253,13 @@ void PhotometricUndistorter::processFrame(T* image_in, float exposure_time, floa
 	{
 		for(int i=0; i<wh;i++)
 		{
-			data[i] = G[image_in[i]]; // 去掉响应函数
+			data[i] = G[image_in[i]]; // 去掉响应函数 apply inv.Response
 		}
 
 		if(setting_photometricCalibration==2) // 去掉衰减系数
 		{
 			for(int i=0; i<wh;i++)
-				data[i] *= vignetteMapInv[i];
+				data[i] *= vignetteMapInv[i]; //remove V
 		}
 
 		output->exposure_time = exposure_time; // 设置曝光时间
@@ -273,6 +285,7 @@ Undistort::~Undistort()
 	if(remapY != 0) delete[] remapY;
 }
 
+// 支持的相机模型有 RadTan，PINHOLE，ATAN等，然后根据相机模型选择对应的Undistort函数
 Undistort* Undistort::getUndistorterForFile(std::string configFilename, std::string gammaFilename, std::string vignetteFilename)
 {
 	printf("Reading Calibration from file %s",configFilename.c_str());
@@ -304,10 +317,10 @@ Undistort* Undistort::getUndistorterForFile(std::string configFilename, std::str
         printf("found RadTan (OpenCV) camera model, building rectifier.\n");
         u = new UndistortRadTan(configFilename.c_str(), true);
 		if(!u->isValid()) {delete u; return 0; }
-    }
+	}
 
     // for backwards-compatibility: Use Pinhole / FoV model for 5 parameter.
-    else if(std::sscanf(l1.c_str(), "%f %f %f %f %f",
+	else if(std::sscanf(l1.c_str(), "%f %f %f %f %f",
 			&ic[0], &ic[1], &ic[2], &ic[3], &ic[4]) == 5)
 	{
 		if(ic[4]==0)  // 没有FOV的畸变参数, 只有pinhole
@@ -404,6 +417,7 @@ ImageAndExposure* Undistort::undistort(const MinimalImage<T>* image_raw, float e
 		exit(1);
 	}
 //[ ***step 1*** ] 去除光度参数的影响
+  // 执行此函数进行光度校准。执行完之后，photometricUndist->output存储的是光度校准之后的图像信息，还包括时间戳以及曝光时间。
 	photometricUndist->processFrame<T>(image_raw->data, exposure, factor); // 去除光度参数影响
 	ImageAndExposure* result = new ImageAndExposure(w, h, timestamp);
 	photometricUndist->output->copyMetaTo(*result); // 只复制了曝光时间
@@ -493,6 +507,7 @@ ImageAndExposure* Undistort::undistort(const MinimalImage<T>* image_raw, float e
 	}
 
 //[ ***step 3*** ]	添加光度噪声
+// 再进行光度校准之后，会人为的添加噪声。为什么呢？
 	applyBlurNoise(result->image);
 
 	return result;
@@ -742,7 +757,9 @@ void Undistort::makeOptimalK_full()
 }
 
 //@ 参数: 配置文件名, 参数个数, 相机模型名称
-//* 
+// 读取第一行的数据到：parsOrg[0]～parsOrg[7](相机内参以及畸变矫正变量)，读取第二行的数据到：wOrg，hOrg（图像原始大小），
+// 读取第三行数据判断是否对图片进行裁剪操作，读取第四行数据到：w，h（图像输出大小）。然后根据读取数据计算内参矩阵K，
+// 注意如果对图像进行了裁剪，那么内参矩阵K需要重新计算（不能简单利用parsOrg[0]～parsOrg[3]）
 void Undistort::readFromFile(const char* configFileName, int nPars, std::string prefix)
 {
 	photometricUndist=0;

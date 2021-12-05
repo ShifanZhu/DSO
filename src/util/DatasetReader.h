@@ -104,8 +104,8 @@ class ImageFolderReader
 public:
 	ImageFolderReader(std::string path, std::string calibFile, std::string gammaFile, std::string vignetteFile)
 	{
-		this->path = path;
-		this->calibfile = calibFile;
+		this->path = path; //图像
+		this->calibfile = calibFile; //相机内参
 
 #if HAS_ZIPLIB
 		ziparchive=0;
@@ -118,10 +118,11 @@ public:
 
 
 
-		if(isZipped)
+		if(isZipped) // 解压图片文件
 		{
 #if HAS_ZIPLIB
 			int ziperror=0;
+			// 图像为 .zip 文件
 			ziparchive = zip_open(path.c_str(),  ZIP_RDONLY, &ziperror);
 			if(ziperror!=0)
 			{
@@ -130,13 +131,13 @@ public:
 			}
 
 			files.clear();
-			int numEntries = zip_get_num_entries(ziparchive, 0);
+			int numEntries = zip_get_num_entries(ziparchive, 0); // 图片数量
 			for(int k=0;k<numEntries;k++)
 			{
 				const char* name = zip_get_name(ziparchive, k,  ZIP_FL_ENC_STRICT);
 				std::string nstr = std::string(name);
 				if(nstr == "." || nstr == "..") continue;
-				files.push_back(name);
+				files.push_back(name); // 存储图像名称的vector
 			}
 
 			printf("got %d entries and %d files!\n", numEntries, (int)files.size());
@@ -147,19 +148,20 @@ public:
 #endif
 		}
 		else
-			getdir (path, files);
+			// 图像未压缩
+			getdir (path, files); // 如果没压缩，直接读取
 
-
+		// 读取去畸变文件，包括内参，伽玛，渐晕。
 		undistort = Undistort::getUndistorterForFile(calibFile, gammaFile, vignetteFile);
 
-		widthOrg = undistort->getOriginalSize()[0];
+		widthOrg = undistort->getOriginalSize()[0]; //内参文件第二行：原始图像大小
 		heightOrg = undistort->getOriginalSize()[1];
-		width=undistort->getSize()[0];
+		width=undistort->getSize()[0]; //内参文件第四行：输出图像大小
 		height=undistort->getSize()[1];
 
 
 		// load timestamps if possible.
-		loadTimestamps();
+		loadTimestamps(); //加载时间戳，需要有times.txt文件
 		printf("ImageFolderReader: got %d files in %s!\n", (int)files.size(), path.c_str());
 
 	}
@@ -193,8 +195,8 @@ public:
 	{
 		int w_out, h_out;
 		Eigen::Matrix3f K;
-		getCalibMono(K, w_out, h_out);
-		setGlobalCalib(w_out, h_out, K);
+		getCalibMono(K, w_out, h_out); //获取前面根据相机内参文件建立的内参矩阵
+		setGlobalCalib(w_out, h_out, K); //建立金字塔，各层金字塔之间的比例为2，并且计算各层金字塔的内参
 	}
 
 	int getNumImages()
@@ -280,11 +282,11 @@ private:
 
 	ImageAndExposure* getImage_internal(int id, int unused)
 	{
-		MinimalImageB* minimg = getImageRaw_internal(id, 0);
+		MinimalImageB* minimg = getImageRaw_internal(id, 0); // 获取原始图像
 		ImageAndExposure* ret2 = undistort->undistort<unsigned char>(
 				minimg,
 				(exposures.size() == 0 ? 1.0f : exposures[id]),
-				(timestamps.size() == 0 ? 0.0 : timestamps[id]));
+				(timestamps.size() == 0 ? 0.0 : timestamps[id])); // 去畸变
 		delete minimg;
 		return ret2;
 	}
@@ -306,8 +308,8 @@ private:
 
 			if(3 == sscanf(buf, "%d %lf %f", &id, &stamp, &exposure))
 			{
-				timestamps.push_back(stamp);
-				exposures.push_back(exposure);
+				timestamps.push_back(stamp); //时间戳
+				exposures.push_back(exposure); //曝光时间
 			}
 
 			else if(2 == sscanf(buf, "%d %lf", &id, &stamp))

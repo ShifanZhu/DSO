@@ -140,12 +140,14 @@ FullSystem::FullSystem()
 
 	selectionMap = new float[wG[0]*hG[0]];
 
+	// 比较重要的类的初始化
 	coarseDistanceMap = new CoarseDistanceMap(wG[0], hG[0]);
 	coarseTracker = new CoarseTracker(wG[0], hG[0]);
 	coarseTracker_forNewKF = new CoarseTracker(wG[0], hG[0]);
 	coarseInitializer = new CoarseInitializer(wG[0], hG[0]);
 	pixelSelector = new PixelSelector(wG[0], hG[0]);
 
+	// 以及一些变量的初始值
 	statistics_lastNumOptIts=0;
 	statistics_numDroppedPoints=0;
 	statistics_numActivatedPoints=0;
@@ -223,6 +225,8 @@ void FullSystem::setOriginalCalib(const VecXf &originalCalib, int originalW, int
 }
 
 //* 设置相机响应函数
+// setGammaFunction(): 将经转换后的pcalib.txt 文件的数据G[i]进行一个运算后赋值给Hcalib.B[i]。
+// 其中 reader->getPhotometricGamma()获取的是经转换之后的 pcalib.txt 文件的数据，G[i]，也就是此处的 BInv.
 void FullSystem::setGammaFunction(float* BInv)
 {
 	if(BInv==0) return;
@@ -855,7 +859,10 @@ void FullSystem::addActiveFrame( ImageAndExposure* image, int id )
 
 
 	//[ ***step 2*** ] 创建FrameHessian和FrameShell, 并进行相应初始化, 并存储所有帧
+	// 初始化存储图像帧信息的类，生成类FrameHessian，FrameShell的对象，并设置初值，
+	// 包括：camToWorld，aff_g2l等，并将当前帧的信息加入到allFrameHistory。
 	// =========================== add into allFrameHistory =========================
+	// 如果到了第二帧，首先与第一帧一样，进行图像帧相关信息的初始定义，并设置初值。
 	FrameHessian* fh = new FrameHessian();
 	FrameShell* shell = new FrameShell();
 	shell->camToWorld = SE3(); 		// no lock required, as fh is not used anywhere yet.
@@ -867,8 +874,10 @@ void FullSystem::addActiveFrame( ImageAndExposure* image, int id )
 	allFrameHistory.push_back(shell);  // 只把简略的shell存起来
 
 	//[ ***step 3*** ] 得到曝光时间, 生成金字塔, 计算整个图像梯度
+	// 对当前帧makeImages()，计算当前图像帧各层金字塔的像素灰度值以及梯度。
 	// =========================== make Images / derivatives etc. =========================
-	fh->ab_exposure = image->exposure_time;
+	// makeImages()计算梯度，梯度平方和。
+	fh->ab_exposure = image->exposure_time; //曝光时间设置
     fh->makeImages(image->image, &Hcalib);
 
 
@@ -886,12 +895,18 @@ void FullSystem::addActiveFrame( ImageAndExposure* image, int id )
 		//[ ***step 4.1*** ] 加入第一帧
 		if(coarseInitializer->frameID<0)	// first frame set. fh is kept by coarseInitializer.
 		{
+			// 初始化操作，设置第一帧。
 			coarseInitializer->setFirst(&Hcalib, fh);
 		}
+		// 如果是第二帧，对第一帧进行跟踪
+		// 第三，四，五，六，七帧。按照笔者的理解，第3,4,5,6,7帧的处理与第2帧的处理一样，前一帧的优化结果作为后一帧的优化初值。
+		// 前面直到else if(coarseInitializer->trackFrame(fh, outputWrapper))的处理均与第2帧一样，在当前帧的时候，
+		// 对第一帧进行跟踪之后会返回ture，表示可以进行初始化操作。
+		// 前面几帧的处理都是为初始化做准备，一直到第8帧才达到满足进行初始化的条件（如果不出现意外的情况）
 		else if(coarseInitializer->trackFrame(fh, outputWrapper))	// if SNAPPED
 		{
 		//[ ***step 4.2*** ] 跟踪成功, 完成初始化
-			initializeFromInitializer(fh);
+			initializeFromInitializer(fh); //真正的初始化操作
 			lock.unlock();
 			deliverTrackedFrame(fh, true); // 前端后端的数据接口，进行数据通讯
 		}
@@ -1280,7 +1295,9 @@ void FullSystem::initializeFromInitializer(FrameHessian* newFrame)
 	boost::unique_lock<boost::mutex> lock(mapMutex);
 
 	//[ ***step 1*** ] 把第一帧设置成关键帧, 加入队列, 加入EnergyFunctional
-	// add firstframe.
+	// add firstframe. 添加第一帧
+	// 在这里新定义vector：frameHessians和allKeyFramesHistory，并把第一帧加入进去，
+	// （这两个容器应该是只存储关键帧的相关信息，此时里面仅有第一帧）
 	FrameHessian* firstFrame = coarseInitializer->firstFrame;  // 第一帧增加进地图
 	firstFrame->idx = frameHessians.size(); // 赋值给它id (0开始)
 	frameHessians.push_back(firstFrame);  	// 地图内关键帧容器

@@ -197,7 +197,10 @@ inline int gridMaxSelection(Eigen::Vector3f* grads, bool* map_out, int w, int h,
 	return numGood;
 }
 
-
+// makePixelStatus()函数解析：
+// 利用函数gridMaxSelection<>()来选取像素点，选取标准是：sqgd > TH*TH，同样不是满足条件就会被选取。
+// 选取方法是：仅在一倍步长里面进行选取，然后满足上述条件的像素点需要在：dx，dy ，dx+dy， dx-dy这四个表达式中
+// 任意一个大于在当前步长区域上一个被选取的点。同样，也会根据选点数量来调整步长。
 inline int makePixelStatus(Eigen::Vector3f* grads, bool* map, int w, int h, float desiredDensity, int recsLeft=5, float THFac = 1)
 {
 	if(sparsityFactor < 1) sparsityFactor = 1; // 网格的大小, 在网格内选择最大的

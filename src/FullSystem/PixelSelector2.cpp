@@ -156,6 +156,12 @@ void PixelSelector::makeHists(const FrameHessian* const fh)
  * @
  * @ note:		使用递归
  *******************************/
+// 首先利用makeHists(fh)函数计算阈值，阈值计算方法为：将图像分成32×32的块，计算出每个像素的梯度平方和，（如果大于48则按48计）利用数组hist0[]
+// 存储梯度平方和（从1-49）相同的像素个数，hist0[0]存储整个块中的像素数量。然后利用computeHistQuantil(hist0,setting_minGradHistCut)计算
+// 阈值1，阈值1是（hist0[0]×setting_minGradHistCut+0.5）依次减去梯度平方和从1-90的像素个数（为什么是到90？）直到
+// （hist0[0]×setting_minGradHistCut+0.5）小于0,阈值1是此时的梯度平方和。若（hist0[0]×setting_minGradHistCut+0.5）一直不为0，则此时阈值1=90。
+// 然后该块的阈值为ths[x+y*w32]=阈值1+setting_minGradHistAdd。计算了所有的块的阈值之后，会对其进行平滑处理，得到最终每个块的
+// 阈值：thsSmoothed[x+y*w32]。计算了阈值之后，使用以下函数 this->select( 进行像素点选取：（会使用到thsSmoothed[x+y*w32]）
 int PixelSelector::makeMaps(
 		const FrameHessian* const fh,
 		float* map_out, float density, int recursionsLeft, bool plot, float thFactor)
@@ -326,6 +332,15 @@ int PixelSelector::makeMaps(
  * 
  * @ note:			返回的是每一层选择的点的个数
  *******************************/
+// 像素点选取的标准是：
+// 像素点在第0层图像的梯度平方和大于pixelTH0*thFactor，像素点在第1层图像的梯度平方和大于pixelTH1*thFactor，
+// 像素点在第2层图像的梯度平方和大于pixelTH2*thFactor。这三个条件是有先后顺序的，先判断前面，如果满足就不判断后面的条件，并且并不是
+// 满足此三个条件就会被选择，而是有资格被选择，具体下面分析。
+// 像素点选取方法是：
+// 利用for循环实现4倍步长，2倍步长，1倍步长的遍历像素点选择满足上述像素点选取标准的像素点，然后像素点的dirNorm还需大于在当前步长区域中
+// 上一个选取的像素点dirNorm。（所以并不是选取最大的，而是要大于在当前步长区域内已选择的像素点）通过不同标准选取的像素点，其对应位置
+// 的statusMap值不一样，条件1的值为1,条件2的值为2,条件3的值为4。
+// 最后，会对选取点的数量进行判断，然后调整步长重新选点。若选点过多，则增大步长，反之则减小步长。
 Eigen::Vector3i PixelSelector::select(const FrameHessian* const fh,
 		float* map_out, int pot, float thFactor)
 {

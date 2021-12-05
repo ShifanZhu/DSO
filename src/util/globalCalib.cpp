@@ -43,6 +43,8 @@ namespace dso
 	float wM3G; // w-3 global
 	float hM3G;
 
+	// 根据图像输出大小确定金字塔层数，原始图像为第0层，最高层为pyrLevelsUsed-1层。
+	// 注意：最高层图像的高和宽要大于100,并且pyrLevelsUsed要大于等于3。
 	void setGlobalCalib(int w, int h,const Eigen::Matrix3f &K)
 	{
 		int wlvl=w;
@@ -85,11 +87,13 @@ namespace dso
 		cxiG[0] = KiG[0](0,2);
 		cyiG[0] = KiG[0](1,2);
 
+		// 各层金字塔图像之间的内参计算关系
 		for (int level = 1; level < pyrLevelsUsed; ++ level)
 		{
 			wG[level] = w >> level; // 相当于每一层在前一层的基础上除以2
 			hG[level] = h >> level;
 
+			// 各层内参传递关系
 			fxG[level] = fxG[level-1] * 0.5;
 			fyG[level] = fyG[level-1] * 0.5;
 			cxG[level] = (cxG[0] + 0.5) / ((int)1<<level) - 0.5;

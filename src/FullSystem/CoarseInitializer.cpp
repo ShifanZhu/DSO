@@ -92,6 +92,8 @@ CoarseInitializer::~CoarseInitializer()
 
 // 优化过程中的lambda和点的逆深度有关系，起一个加权的作用，也不是很明白对lambda增减的操作。在完成所有层的优化之后，进行 CoarseInitializer::propagateUp操作，
 // 使用低一层点的逆深度更新其高一层点parent的逆深度，这个更新是基于iR的，使得逆深度平滑。高层的点逆深度，在后续的操作中，没有使用到，所以这一步操作我认为是无用的。
+
+// 将当前帧赋给newFrame为第一次跟踪，并为第一次跟踪做准备，（此时snapped为false，上一篇博客有提到）将两帧相对位姿的平移部分置0，并且给第一帧选取的像素点相关信息设置初值。
 bool CoarseInitializer::trackFrame(FrameHessian* newFrameHessian, std::vector<IOWrap::Output3DWrapper*> &wraps)
 {
 	newFrame = newFrameHessian;
@@ -110,6 +112,8 @@ bool CoarseInitializer::trackFrame(FrameHessian* newFrameHessian, std::vector<IO
 	couplingWeight = 1;//*freeDebugParam5;
 
 //[ ***step 2*** ] 初始化每个点逆深度为1, 初始化光度参数, 位姿SE3
+	// 将当前帧赋给newFrame为第一次跟踪，并为第一次跟踪做准备，（此时snapped为false，上一篇博客有提到）将两帧相对位姿的平移部分置0，
+	// 并且给第一帧选取的像素点相关信息设置初值。
 	if(!snapped) //! snapped应该指的是位移足够大了，不够大就重新优化
 	{
 		// 初始化
@@ -128,6 +132,7 @@ bool CoarseInitializer::trackFrame(FrameHessian* newFrameHessian, std::vector<IO
 	}
 
 
+  // 设置两帧之间的相对位姿变换以及由曝光时间设置两帧的光度放射变换。
 	SE3 refToNew_current = thisToNext;
 	AffLight refToNew_aff_current = thisToNext_aff;
 
@@ -136,6 +141,7 @@ bool CoarseInitializer::trackFrame(FrameHessian* newFrameHessian, std::vector<IO
 		refToNew_aff_current = AffLight(logf(newFrame->ab_exposure /  firstFrame->ab_exposure),0); // coarse approximation.
 
 
+	// 金字塔跟踪模型（重点）：对金字塔每层进行跟踪，由最高层开始，构建残差进行优化。
 	Vec3f latestRes = Vec3f::Zero();
 	// 从顶层开始估计
 	for(int lvl=pyrLevelsUsed-1; lvl>=0; lvl--)
@@ -143,12 +149,20 @@ bool CoarseInitializer::trackFrame(FrameHessian* newFrameHessian, std::vector<IO
 
 //[ ***step 3*** ] 使用计算过的上一层来初始化下一层
 		// 顶层未初始化到, reset来完成
+		// 对其他层：首先propagateDown(lvl+1);，对当前层的坏点继承其parent的逆深度信息。其他与最高层一样，也是先计算resOld，然后求解迭代增量，
+		// 计算resNew,，如果energy减小则接受更新，继续迭代。如果增大则调整lambad，重新计算。
 		if(lvl<pyrLevelsUsed-1)
 			propagateDown(lvl+1);
 
+		// 最高层：
+		// 首先利用resetPoints(lvl);设置最高层选取的点的energy和idepth_new；pts[i].energy.setZero();pts[i].idepth_new = pts[i].idepth;
+		// 并且将坏点的逆深度为当前点的neighbours的逆深度平均值。
+		// 然后利用resOld = calcResAndGS()计算当前的残差energy和优化的H矩阵和b以及Hsc，bsc。
+		// applyStep(lvl);应用计算的相关信息。
 		Mat88f H,Hsc; Vec8f b,bsc;
 		resetPoints(lvl); // 这里对顶层进行初始化!
 //[ ***step 4*** ] 迭代之前计算能量, Hessian等
+		// calcResAndGS()是该函数优化部分的核心
 		Vec3f resOld = calcResAndGS(lvl, H, b, Hsc, bsc, refToNew_current, refToNew_aff_current, false);
 		applyStep(lvl); // 新的能量付给旧的
 
@@ -193,8 +207,9 @@ bool CoarseInitializer::trackFrame(FrameHessian* newFrameHessian, std::vector<IO
 				inc.head<6>() = - (wM.toDenseMatrix().topLeftCorner<6,6>() * (Hl.topLeftCorner<6,6>().ldlt().solve(bl.head<6>())));
 				inc.tail<2>().setZero();
 			}
+			// 通过上述计算的矩阵信息，进行迭代增量的求解。inc迭代增量表示相对位姿增量，相对仿射变换增量（8维）。求解增量会加入lambda，有点类似与LM的求解方法。
 			else
-				inc = - (wM * (Hl.ldlt().solve(bl)));	//=-H^-1 * b.
+				inc = - (wM * (Hl.ldlt().solve(bl)));	//=-H^-1 * b. 迭代增量的求解
 
 //[ ***step 5.3*** ] 更新状态, doStep中更新逆深度
 			SE3 refToNew_new = SE3::exp(inc.head<6>().cast<double>()) * refToNew_current;
@@ -203,11 +218,16 @@ bool CoarseInitializer::trackFrame(FrameHessian* newFrameHessian, std::vector<IO
 			refToNew_aff_new.b += inc[7];
 			doStep(lvl, lambda, inc);
 
+			// 利用doStep(lvl, lambda, inc);计算选取的像素点逆深度增量。
+			// 再计算并更新了所有增量之后，重新计算残差以及优化用到的矩阵信息。其中calcEC(lvl)计算像素点的逆深度energy。
+
 //[ ***step 5.4*** ] 计算更新后的能量并且与旧的对比判断是否accept
 			Mat88f H_new, Hsc_new; Vec8f b_new, bsc_new;
 			Vec3f resNew = calcResAndGS(lvl, H_new, b_new, Hsc_new, bsc_new, refToNew_new, refToNew_aff_new, false);
 			Vec3f regEnergy = calcEC(lvl);
 
+			// 然后比较两次的energy，如果减小了则接受优化，并且将新计算的H矩阵和b矩阵赋值，从而实现迭代优化。
+			// 反之则调整lambda的值继续，并且失败次数加1。
 			float eTotalNew = (resNew[0]+resNew[1]+regEnergy[1]);
 			float eTotalOld = (resOld[0]+resOld[1]+regEnergy[0]);
 
@@ -258,6 +278,7 @@ bool CoarseInitializer::trackFrame(FrameHessian* newFrameHessian, std::vector<IO
 
 			bool quitOpt = false;
 			// 迭代停止条件, 收敛/大于最大次数/失败2次以上
+			// 退出迭代优化的条件是：增量过小，迭代次数超过该层设置的最大迭代次数，误差增大的次数超过2（即发散）。
 			if(!(inc.norm() > eps) || iteration >= maxIterations[lvl] || fails >= 2)
 			{
 				Mat88f H,Hsc; Vec8f b,bsc;
@@ -275,6 +296,7 @@ bool CoarseInitializer::trackFrame(FrameHessian* newFrameHessian, std::vector<IO
 
 
 //[ ***step 6*** ] 优化后赋值位姿, 从底层计算上层点的深度
+	// 在对所有层跟踪完成之后，得到最终优化结果：
 	thisToNext = refToNew_current;
 	thisToNext_aff = refToNew_aff_current;
 
@@ -290,6 +312,7 @@ bool CoarseInitializer::trackFrame(FrameHessian* newFrameHessian, std::vector<IO
 	if(snapped && snappedAt==0)
 		snappedAt = frameID;  // 位移足够的帧数
 
+	// 此时：frameID=1；snappedAt=1；snapped的值根据是否接受了优化而决定。
 
 
     debugPlot(0,wraps);
@@ -297,7 +320,9 @@ bool CoarseInitializer::trackFrame(FrameHessian* newFrameHessian, std::vector<IO
 
 	// 位移足够大, 再优化5帧才行
 	// 所以初始化最少需要有七帧
+	// 判断能否初始化的条件为
 	return snapped && frameID > snappedAt+5;
+	// 关于第二帧的处理已经分析完毕，由于此时return 为false，达不到可以初始化的条件，因此第二帧的处理到此结束。
 }
 
 void CoarseInitializer::debugPlot(int lvl, std::vector<IOWrap::Output3DWrapper*> &wraps)
@@ -353,6 +378,11 @@ void CoarseInitializer::debugPlot(int lvl, std::vector<IOWrap::Output3DWrapper*>
 
 //* 计算能量函数和Hessian矩阵, 以及舒尔补, sc代表Schur
 // calculates residual, Hessian and Hessian-block neede for re-substituting depth.
+// calcResAndGS()函数解析：
+// trackFrame()函数优化的变量是两帧之间的相对状态（包括位姿和光度，8维），以及选取的像素点的逆深度，因此需要求解残差关于优化变量雅克比矩阵。
+// 推导可以参考博客直接法光度误差导数推导。https://www.cnblogs.com/JingeTU/p/8203606.html
+// calcResAndGS()函数计算了高斯牛顿方程的H，b；以及舒尔补之后Hsc，bsc。他们的构建以及推导可以参考博客DSO优化代码
+// 中的Schur Complement. https://www.cnblogs.com/JingeTU/p/8297076.html
 Vec3f CoarseInitializer::calcResAndGS(
 		int lvl, Mat88f &H_out, Vec8f &b_out,
 		Mat88f &H_out_sc, Vec8f &b_out_sc,
@@ -365,6 +395,8 @@ Vec3f CoarseInitializer::calcResAndGS(
 	Eigen::Vector3f* colorNew = newFrame->dIp[lvl];
 
 	//! 旋转矩阵R * 内参矩阵K_inv
+	// 首先计算RKi t r2new_aff ，将第一帧图像选取的像素点投影到当前帧，并且投影时要根据像素点属于哪层金字塔选用对应层的金字塔内参，同时会删除
+	// 投影位置不好的点。
 	Mat33f RKi = (refToNew.rotationMatrix() * Ki[lvl]).cast<float>();
 	Vec3f t = refToNew.translation().cast<float>(); // 平移
 	Eigen::Vector2f r2new_aff = Eigen::Vector2f(exp(refToNew_aff.a), refToNew_aff.b); // 光度参数
@@ -397,6 +429,7 @@ Vec3f CoarseInitializer::calcResAndGS(
 			continue;
 		}
 
+		// 注意DSO采用了像素点的pattern，因此每个像素点的残差是8维的。
         VecNRf dp0;  // 8*1矩阵, 每个点附近的残差个数为8个
         VecNRf dp1;
         VecNRf dp2;
@@ -436,6 +469,7 @@ Vec3f CoarseInitializer::calcResAndGS(
 				break;
 			}
 			// 插值得到新图像中的 patch 像素值，(输入3维，输出3维像素值 + x方向梯度 + y方向梯度)
+			// 残差的构建以及energy的计算：（使用可Huber权重）
 			Vec3f hitColor = getInterpolatedElement33(colorNew, Ku, Kv, wl);
 			//Vec3f hitColor = getInterpolatedElement33BiCub(colorNew, Ku, Kv, wl);
 
@@ -459,6 +493,7 @@ Vec3f CoarseInitializer::calcResAndGS(
 			energy += hw *residual*residual*(2-hw);
 
 
+			// 关于优化变量的雅克比矩阵可以通过参考博客推导，然后可以构建雅克比矩阵，在构建时采用了SSE指令集加速计算。
 
 			// Pj 对 逆深度 di 求导
 			//! 1/Pz * (tx - u*tz), u = px/pz
@@ -842,12 +877,14 @@ void CoarseInitializer::makeGradients(Eigen::Vector3f** data)
 // 每一层点之间都有联系，在 CoarseInitializer::makeNN 中计算每个点最邻近的10个点 neighbours，在上一层的最邻近点 parent。
 // pointHessians 是成熟点，具有逆深度信息的点，能够在其他影像追踪到的点。immaturePoints 是未成熟点，需要使用非关键帧的影像对它的逆深度进行优化，
 // 在使用关键帧将它转换成 pointHessians，并且加入到窗口优化。
+//首先利用makeK()函数计算每层图像金字塔的内参，计算方法与上一篇博客中提到的一样，并且将当前帧赋给firstFrame。
 void CoarseInitializer::setFirst(	CalibHessian* HCalib, FrameHessian* newFrameHessian)
 {
 //[ ***step 1*** ] 计算图像每层的内参
-	makeK(HCalib);
+	makeK(HCalib); //计算每层图像金字塔的内参，用于后续的金字塔跟踪模型
 	firstFrame = newFrameHessian;
 
+	// 然后进行像素点选取的相关类的初始实例化以及变量的初始定义。
 	PixelSelector sel(w[0],h[0]); // 像素选择
 
 	float* statusMap = new float[w[0]*h[0]];
@@ -859,19 +896,22 @@ void CoarseInitializer::setFirst(	CalibHessian* HCalib, FrameHessian* newFrameHe
 //[ ***step 2*** ] 针对不同层数选择大梯度像素, 第0层比较复杂1d, 2d, 4d大小block来选择3个层次的像素
 		sel.currentPotential = 3; // 设置网格大小，3*3大小格
 		int npts; // 选择的像素数目
-		if(lvl == 0) // 第0层提取特征像素
+		// 接下来对第一帧进行像素点选取，利用for循环对每一层进行选点。变量npts表示选点数量，通过数组statusMap和statusMapB中的对应位置的值表示
+		// 该位置的像素点是否被选取。
+		if(lvl == 0) // 第0层提取特征像素 // 第0层(原始图像)
 			npts = sel.makeMaps(firstFrame, statusMap,densities[lvl]*w[0]*h[0],1,false,2);
 		else  // 其它层则选出goodpoints
 			npts = makePixelStatus(firstFrame->dIp[lvl], statusMapB, w[lvl], h[lvl], densities[lvl]*w[0]*h[0]);
 
 
+		// 在对每层图像选点之后，将点存储起来，numPoints[lvl]表示lvl层选取的像素点数量。
 		// 如果点非空, 则释放空间, 创建新的
 		if(points[lvl] != 0) delete[] points[lvl];
-		points[lvl] = new Pnt[npts];
+		points[lvl] = new Pnt[npts]; // lvl 表示金字塔层数
 
 		// set idepth map to initially 1 everywhere.
 		int wl = w[lvl], hl = h[lvl]; // 每一层的图像大小
-		Pnt* pl = points[lvl];  // 每一层上的点
+		Pnt* pl = points[lvl];  // 每一层上的点 //pl为lvl层的首地址，与makeImages()函数中类似
 		int nl = 0;
 		// 要留出pattern的空间, 2 border
 //[ ***step 3*** ] 在选出的像素中, 添加点信息
@@ -883,6 +923,7 @@ void CoarseInitializer::setFirst(	CalibHessian* HCalib, FrameHessian* newFrameHe
 			if((lvl!=0 && statusMapB[x+y*wl]) || (lvl==0 && statusMap[x+y*wl] != 0))
 			{
 				//assert(patternNum==9);
+				// 选取的像素点相关值的初始化，nl为像素点的ID
 				pl[nl].u = x+0.1;   //? 加0.1干啥
 				pl[nl].v = y+0.1;
 				pl[nl].idepth = 1;
@@ -923,10 +964,12 @@ void CoarseInitializer::setFirst(	CalibHessian* HCalib, FrameHessian* newFrameHe
 	delete[] statusMap;
 	delete[] statusMapB;
 //[ ***step 4*** ] 计算点的最近邻和父点
+	// 选点之后，利用makeNN()函数建立KDtree。
 	makeNN();
 
 	// 参数初始化
-
+	// 设置一些变量的值，thisToNext表示当前帧到下一帧的位姿变换，snapped frameID snappedAt这三个变量
+	// 在后续判断是否跟踪了足够多的图像帧能够初始化时用到。
 	thisToNext=SE3();
 	snapped = false;
 	frameID = snappedAt = 0;
@@ -1058,6 +1101,9 @@ void CoarseInitializer::makeK(CalibHessian* HCalib)
 
 
 //@ 生成每一层点的KDTree, 并用其找到邻近点集和父点 
+// makeNN()函数解析：
+// 每一金字塔层选取的像素点构成一个KD数，为每层的点找到最近邻的10个点。pts[i].neighbours[myidx]=ret_index[k];
+// 并且会在上一层找到该层像素点的parent，（最高层除外）pts[i].parent = ret_index[0];。用于后续提供初值，加速优化。
 void CoarseInitializer::makeNN()
 {
 	const float NNDistFactor=0.05;

@@ -132,6 +132,10 @@ void FrameHessian::release()
 }
 
 //* 构建图像金字塔，并计算各层金字塔图像的像素值和梯度
+// makeImages()函数解析：
+// 首先对每层金字塔初始化两个数组，数组的类型为Eigen::Vector3f和float；其中dIp[i] absSquaredGrad[i]是金字塔第i层的数组的首地址。
+// dIp[i]数组的元素为三维向量，分别代表像素灰度值，x方向的梯度，y方向的梯度。absSquaredGrad[i]数组的元素代表两个方向的梯度平方和。
+// 对这两个数据的调用方式如下：（在候选点选取的时候会用到此处构建的两个数组，在这里先介绍一下，能够帮助理解这两个数组是如何构建的。）
 void FrameHessian::makeImages(float* color, CalibHessian* HCalib)
 {
 	// 每一层创建图像值, 和图像梯度的存储空间
@@ -148,13 +152,14 @@ void FrameHessian::makeImages(float* color, CalibHessian* HCalib)
 
 /*	
 	// 帮助理解
+	// 对dIp和absSquaredGrad这两个数据的调用方式如下：（在候选点选取的时候会用到此处构建的两个数组，在这里先介绍一下，能够帮助理解这两个数组是如何构建的。）
 	dI=dIp[0];  获取金字塔第0层，若要获取其他层，修改中括号里面即可；
 	dI[idx][0]  表示图像金字塔第0层，idx位置处的像素的像素灰度值;(这是因为DSO中存储图像像素值都是采用一维数组来表示，类似于opencv里面的data数组。)
 	dI[idx][1]  表示图像金字塔第0层，idx位置处的像素的x方向的梯度
 	dI[idx][2]  表示图像金字塔第0层，idx位置处的像素的y方向的梯度
 	abs=absSquaredGrad[1]; ///获取金字塔第1层，若要获取其他层，修改中括号里面即可；
 	abs[idx]   表示图像金字塔第1层，，idx位置处的像素x,y方向的梯度平方和
-	此两个数据的构建：主要内容是图像金字塔是如何产生以及梯度的求取
+	此两个数据的构建：主要内容是图像金字塔是如何产生以及梯度的求取（在上一篇博客中运行前的准备介绍了如何确定使用的金字塔层数。）
 */
 
 	dI = dIp[0]; // 原来他们指向同一个地方
@@ -195,6 +200,7 @@ void FrameHessian::makeImages(float* color, CalibHessian* HCalib)
 		for(int idx=wl;idx < wl*(hl-1);idx++) // idx等于wl而不是0，说明从第二行开始，因为下边算梯度需要计算 idx-wl
 		{
 			// 此种方法对图像左右边界处的梯度计算有误呀，但可能影响不大
+			// 梯度的求取：利用前后两个像素的差值作为x方向的梯度，利用上下两个像素的差值作为y方向的梯度，注意会跳过边缘像素点的梯度计算。
 			float dx = 0.5f*(dI_l[idx+1][0] - dI_l[idx-1][0]); // 当前点右边-当前点左边
 			float dy = 0.5f*(dI_l[idx+wl][0] - dI_l[idx-wl][0]); // 当前点下边-当前点上边
 
@@ -212,6 +218,7 @@ void FrameHessian::makeImages(float* color, CalibHessian* HCalib)
 			{
 				//! 乘上响应函数, 变换回正常的颜色, 因为光度矫正时 I = G^-1(I) / V(x)
 				float gw = HCalib->getBGradOnly((float)(dI_l[idx][0])); 
+				// 最后会根据参数设置，对计算的两个方向的梯度平方和乘以一个权重。会用到函数setGammaFunction()里面计算的Hcalib.B[i]。
 				dabs_l[idx] *= gw*gw;	// convert to gradient of original color space (before removing response).
 			}
 		}

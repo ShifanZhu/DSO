@@ -146,7 +146,7 @@ void settingsDefault(int preset)
 
 
 
-
+// 参数设置
 void parseArgument(char* arg)
 {
 	int option;
@@ -174,6 +174,7 @@ void parseArgument(char* arg)
         return;
     }
 
+	// preset -- 是否强制实时执行
 	if(1==sscanf(arg,"preset=%d",&option))
 	{
 		settingsDefault(option);
@@ -262,30 +263,34 @@ void parseArgument(char* arg)
 		return;
 	}
 
+	// files -- 图像文件
 	if(1==sscanf(arg,"files=%s",buf))
 	{
-		source = buf;
+		source = buf; //图像文件路径
 		printf("loading data from %s!\n", source.c_str());
 		return;
 	}
 
+	// calib -- 相机内参 calib
 	if(1==sscanf(arg,"calib=%s",buf))
 	{
-		calib = buf;
+		calib = buf; //相机内参文件路径
 		printf("loading calibration from %s!\n", calib.c_str());
 		return;
 	}
 
+	// vignette -- 渐晕图 vignette
 	if(1==sscanf(arg,"vignette=%s",buf))
 	{
-		vignette = buf;
+		vignette = buf; //图像渐晕文件路径
 		printf("loading vignette from %s!\n", vignette.c_str());
 		return;
 	}
 
+	// gamma -- 响应函数校准 gammaCalib
 	if(1==sscanf(arg,"gamma=%s",buf))
 	{
-		gammaCalib = buf;
+		gammaCalib = buf; //相机响应函数
 		printf("loading gammaCalib from %s!\n", gammaCalib.c_str());
 		return;
 	}
@@ -318,6 +323,7 @@ void parseArgument(char* arg)
 		return;
 	}
 
+	// mode -- 是否进行光度校准
 	if(1==sscanf(arg,"mode=%d",&option))
 	{
 
@@ -353,12 +359,12 @@ int main( int argc, char** argv )
 {
 	//setlocale(LC_ALL, "");
 	for(int i=1; i<argc;i++)
-		parseArgument(argv[i]);
+		parseArgument(argv[i]); // 利用此函数读取参数
 
 	// hook crtl+C.
 	boost::thread exThread = boost::thread(exitThread);
 
-
+	// 文件读取
 	ImageFolderReader* reader = new ImageFolderReader(source,calib, gammaCalib, vignette);
 	reader->setGlobalCalibration();
 
@@ -372,7 +378,8 @@ int main( int argc, char** argv )
 
 
 
-
+	// 在参数设置时可以指定从那张图片开始，运行到那张图片结束。即lstart，lend。
+	// 根据两个参数将会对两个vector：std::vector<int> idsToPlay; std::vector<double> timesToPlayAt;进行push_back()；
 	int lstart=start;
 	int lend = end;
 	int linc = 1;
@@ -389,6 +396,8 @@ int main( int argc, char** argv )
 
 
 	FullSystem* fullSystem = new FullSystem();
+	// setGammaFunction(): 将经转换后的pcalib.txt 文件的数据G[i]进行一个运算后赋值给Hcalib.B[i]。
+	// 其中 reader->getPhotometricGamma()获取的是经转换之后的 pcalib.txt 文件的数据，G[i].
 	fullSystem->setGammaFunction(reader->getPhotometricGamma());
 	fullSystem->linearizeOperation = (playbackSpeed==0);
 
@@ -432,7 +441,7 @@ int main( int argc, char** argv )
             }
         }
 
-
+				// 根据preload变量是否预加载图像，预加载的图像存储在std::vector<ImageAndExposure*> preloadedImages;。
         std::vector<ImageAndExposure*> preloadedImages;
         if(preload)
         {
@@ -440,6 +449,7 @@ int main( int argc, char** argv )
             for(int ii=0;ii<(int)idsToPlay.size(); ii++)
             {
                 int i = idsToPlay[ii];
+								// 图像读取：通过函数reader->getImage(i);实现。
                 preloadedImages.push_back(reader->getImage(i));
             }
         }
@@ -449,7 +459,7 @@ int main( int argc, char** argv )
         clock_t started = clock();
         double sInitializerOffset=0;
 
-
+				// 图像帧处理
         for(int ii=0;ii<(int)idsToPlay.size(); ii++)
         {
             if(!fullSystem->initialized)	// if not initialized: reset start time.
@@ -464,9 +474,9 @@ int main( int argc, char** argv )
 
             ImageAndExposure* img;
             if(preload)
-                img = preloadedImages[ii];
+                img = preloadedImages[ii]; //预加载
             else
-                img = reader->getImage(i);
+                img = reader->getImage(i); //未预加载 // 图像进行光度校准的入口
 
 
 
@@ -486,8 +496,9 @@ int main( int argc, char** argv )
             }
 
 
-
-            if(!skipFrame) fullSystem->addActiveFrame(img, i);
+						// 图像帧处理入口
+						// 读取图像之后，运行前的准备已经完成，开始对每一帧图像进行处理。
+            if(!skipFrame) fullSystem->addActiveFrame(img, i); // 此处的img进行了G的映射，以及乘了渐晕因子
 
 
 
