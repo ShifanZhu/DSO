@@ -282,6 +282,7 @@ void FullSystem::printResult(std::string file)
 }
 
 //@ 使用确定的运动模型对新来的一帧进行跟踪, 得到位姿和光度参数
+// 对参考帧进行跟踪
 Vec4 FullSystem::trackNewCoarse(FrameHessian* fh)
 {
 
@@ -293,10 +294,13 @@ Vec4 FullSystem::trackNewCoarse(FrameHessian* fh)
 
 
 
+	// （1）获取参考帧的信息
 	FrameHessian* lastF = coarseTracker->lastRef;  // 参考帧
 
 	AffLight aff_last_2_l = AffLight(0,0);
 //[ ***step 1*** ] 设置不同的运动状态
+	// （2）设置参考帧对当前的位姿 lastF_2_fh_tries （这货是个vector），会进行一系列的
+	// 假设：利用匀速模型加一系列微小旋转，如果关键帧数量只有两帧，则设置相对位姿为单位阵。
 	std::vector<SE3,Eigen::aligned_allocator<SE3>> lastF_2_fh_tries;
 	printf("size: %d \n", lastF_2_fh_tries.size());
 	if(allFrameHistory.size() == 2)
@@ -384,9 +388,12 @@ Vec4 FullSystem::trackNewCoarse(FrameHessian* fh)
 	for(unsigned int i=0;i<lastF_2_fh_tries.size();i++)
 	{
 //[ ***step 2*** ] 尝试不同的运动状态, 得到跟踪是否良好
+		// （3）利用建立的一系列相对位姿利用 trackNewestCoarse() 进行跟踪，根据跟踪优化结果决定 trackingIsGood ，然后结合 lastResiduals 决定 haveOneGood 。
+		// 使用满足条件的假设相对位姿作为两帧相对位姿初值。若一系列位姿假设中均不符合要求，则选取第一个。
 		AffLight aff_g2l_this = aff_last_2_l;  // 上一帧的赋值当前帧
 		SE3 lastF_2_fh_this = lastF_2_fh_tries[i];
 		
+		// 根据优化结果设置返回值，传递给 trackingIsGood
 		bool trackingIsGood = coarseTracker->trackNewestCoarse(
 				fh, lastF_2_fh_this, aff_g2l_this,
 				pyrLevelsUsed-1,
@@ -412,6 +419,7 @@ Vec4 FullSystem::trackNewCoarse(FrameHessian* fh)
 		}
 
 //[ ***step 3*** ] 如果跟踪正常, 并且0层残差比最好的还好留下位姿, 保存最好的每一层的能量值
+	// （4）根据前面的优化结果设置当前帧的相关状态：
 		// do we have a new winner?
 		if(trackingIsGood && std::isfinite((float)coarseTracker->lastResiduals[0]) && !(coarseTracker->lastResiduals[0] >=  achievedRes[0]))
 		{
@@ -496,6 +504,7 @@ void FullSystem::traceNewCoarse(FrameHessian* fh)
 	K(1,2) = Hcalib.cyl();
 
 	// 遍历关键帧
+	// 遍历frameHessians，遍历所有ImmaturePoint，(此时在第八帧上提取了点，生成了ImmaturePoint)利用函数traceOn进行跟踪（又称极线搜索）。
 	for(FrameHessian* host : frameHessians)		// go through all active frames
 	{
 
@@ -507,6 +516,7 @@ void FullSystem::traceNewCoarse(FrameHessian* fh)
 
 		for(ImmaturePoint* ph : host->immaturePoints)
 		{
+			// 利用函数traceOn进行跟踪（又称极线搜索）。
 			ph->traceOn(fh, KRKi, Kt, aff, &Hcalib, false );
 			if(ph->lastTraceStatus==ImmaturePointStatus::IPS_GOOD) trace_good++;
 			if(ph->lastTraceStatus==ImmaturePointStatus::IPS_BADCONDITION) trace_badcondition++;
@@ -535,6 +545,8 @@ void FullSystem::activatePointsMT_Reductor(
 		std::vector<ImmaturePoint*>* toOptimize,
 		int min, int max, Vec10* stats, int tid)
 {
+	// 首先生成类 ImmaturePointTemporaryResidual 的对象 tr ，然后利用 optimizeImmaturePoint()进行优化，
+	// （注意每次仅对一个点进行优化）优化结果存储在 optimized 。
 	ImmaturePointTemporaryResidual* tr = new ImmaturePointTemporaryResidual[frameHessians.size()];
 	for(int k=min;k<max;k++)
 	{
@@ -550,6 +562,7 @@ void FullSystem::activatePointsMT()
 //[ ***step 1*** ] 阈值计算, 通过距离地图来控制数目
 	//currentMinActDist 初值为 2 
 	//* 这太牛逼了.....参数
+	// （1）根据nPoints确定currentMinActDist，
 	if(ef->nPoints < setting_desiredPointDensity*0.66)
 		currentMinActDist -= 0.8;
 	if(ef->nPoints < setting_desiredPointDensity*0.8)
@@ -580,7 +593,10 @@ void FullSystem::activatePointsMT()
 	FrameHessian* newestHs = frameHessians.back();
 
 	// make dist map.
+	// （2）获取最新帧，即当前帧；建立各层金字塔内参；建立dist map。
 	coarseDistanceMap->makeK(&Hcalib);
+	// 在 makeDistanceMap() 函数里会利用金字塔第一层的内参将除当前帧以外的所有帧的所有点投影到当前帧，将投影位置存储到数组 bfsList1[]。
+	// 然后利用 growDistBFS()进行处理，建立 fwdWarpedIDDistFinal ，后续判断能否生成 PointHessian 时用到。（此函数的具体原理还不太清楚）
 	coarseDistanceMap->makeDistanceMap(frameHessians, newestHs);
 
 	//coarseTracker->debugPlotDistMap("distMap");
@@ -588,6 +604,9 @@ void FullSystem::activatePointsMT()
 	std::vector<ImmaturePoint*> toOptimize; toOptimize.reserve(20000); // 待激活的点
 
 //[ ***step 2*** ] 处理未成熟点, 激活/删除/跳过
+	//（3）遍历所有帧的所有 ImmaturePoint ，通过相关参数确定当前遍历点能否生成 PointHessian （即bool canActivate ）。
+	// 删除 canActivate 为false的点，对 canActivate 为true的点，将其投影到当前帧上，（这里为什么要用第一层的内参）根据投影位置再进行
+	// 判断（使用了上一步生成的 fwdWarpedIDDistFinal ），能够转换为 PointHessian 的点存储到 toOptimize ，否则删除。
 	for(FrameHessian* host : frameHessians)		// go through all active frames
 	{
 		if(host == newestHs) continue;
@@ -615,6 +634,7 @@ void FullSystem::activatePointsMT()
 			
 			//* 未成熟点的激活条件
 			// can activate only if this is true.
+			// 判断确定当前遍历点能否生成 PointHessian
 			bool canActivate = (ph->lastTraceStatus == IPS_GOOD
 					|| ph->lastTraceStatus == IPS_SKIPPED
 					|| ph->lastTraceStatus == IPS_BADCONDITION
@@ -625,6 +645,7 @@ void FullSystem::activatePointsMT()
 
 
 			// if I cannot activate the point, skip it. Maybe also delete it.
+			// 删除 canActivate 为false的点，对 canActivate 为true的点，将其投影到当前帧上。  在哪里投影的呢？
 			if(!canActivate)
 			{
 				//* 删除被边缘化帧上的, 和OOB点
@@ -670,6 +691,7 @@ void FullSystem::activatePointsMT()
 //[ ***step 3*** ] 优化上一步挑出来的未成熟点, 进行逆深度优化, 并得到pointhessian
 	std::vector<PointHessian*> optimized; optimized.resize(toOptimize.size());
 
+	// （4）利用activatePointsMT_Reductor()生成PointHessian
 	if(multiThreading)
 		treadReduce.reduce(boost::bind(&FullSystem::activatePointsMT_Reductor, this, &optimized, &toOptimize, _1, _2, _3, _4), 0, toOptimize.size(), 50);
 
@@ -686,10 +708,12 @@ void FullSystem::activatePointsMT()
 		{
 			newpoint->host->immaturePoints[ph->idxInImmaturePoints]=0;
 			newpoint->host->pointHessians.push_back(newpoint);
+			//（5）根据上一步优化的结果利用 ef->insertPoint(newpoint) ;和 ef->insertResidual(r) ;将生成的点加入到滑窗优化中。
 			ef->insertPoint(newpoint);		// 能量函数中插入点
 			for(PointFrameResidual* r : newpoint->residuals)
 				ef->insertResidual(r);		// 能量函数中插入残差
 			assert(newpoint->efPoint != 0);
+			// （6）删除未转换成PointHessian的未成熟点。
 			delete ph;
 		}
 		else if(newpoint == (PointHessian*)((long)(-1)) || ph->lastTraceStatus==IPS_OOB)
@@ -719,7 +743,7 @@ void FullSystem::activatePointsMT()
 		}
 	}
 
-
+// （7）在函数外边重新建立idx：ef->makeIDX();
 }
 
 
@@ -863,14 +887,18 @@ void FullSystem::addActiveFrame( ImageAndExposure* image, int id )
 	// 包括：camToWorld，aff_g2l等，并将当前帧的信息加入到allFrameHistory。
 	// =========================== add into allFrameHistory =========================
 	// 如果到了第二帧，首先与第一帧一样，进行图像帧相关信息的初始定义，并设置初值。
+	// 经过八帧之后，此时已经初始化成功，在讨论第九帧的时候，我将其设为非关键帧来介绍对非关键帧的处理。
+	// 当前帧生成FrameHessian，FrameShell的对象
 	FrameHessian* fh = new FrameHessian();
 	FrameShell* shell = new FrameShell();
+	// 相关值的初始设置
 	shell->camToWorld = SE3(); 		// no lock required, as fh is not used anywhere yet.
 	shell->aff_g2l = AffLight(0,0); // 光度仿射变换, 用来建模曝光时间
     shell->marginalizedAt = shell->id = allFrameHistory.size();
     shell->timestamp = image->timestamp;
     shell->incoming_id = id;
 	fh->shell = shell;
+	// 加入到allFrameHistory
 	allFrameHistory.push_back(shell);  // 只把简略的shell存起来
 
 	//[ ***step 3*** ] 得到曝光时间, 生成金字塔, 计算整个图像梯度
@@ -931,7 +959,7 @@ void FullSystem::addActiveFrame( ImageAndExposure* image, int id )
 		}
 
 		//TODO 使用旋转和位移对像素移动的作用比来判断运动状态
-		Vec4 tres = trackNewCoarse(fh);
+		Vec4 tres = trackNewCoarse(fh); // 对参考帧进行跟踪
 		if(!std::isfinite((double)tres[0]) || !std::isfinite((double)tres[1]) || !std::isfinite((double)tres[2]) || !std::isfinite((double)tres[3]))
         {
             printf("Initial Tracking failed: LOST!\n");
@@ -939,6 +967,7 @@ void FullSystem::addActiveFrame( ImageAndExposure* image, int id )
             return;
         }
 //[ ***step 6*** ] 判断是否插入关键帧
+		// 4.确定当前帧是否能作为关键帧，会考虑上一步的跟踪结果，以及当前滑窗内关键帧的数量，判断结果为needToMakeKF。
 		bool needToMakeKF = false;
 		if(setting_keyframesPerSecond > 0)  // 每隔多久插入关键帧
 		{
@@ -970,6 +999,7 @@ void FullSystem::addActiveFrame( ImageAndExposure* image, int id )
 
 //[ ***step 7*** ] 把该帧发布出去
 		lock.unlock();
+		// 5.利用deliverTrackedFrame()进行关键帧和非关键帧的区分处理。（在此假设第九帧是非关键帧, needToMakeKF 为false）
 		deliverTrackedFrame(fh, needToMakeKF);
 		return;
 	}
@@ -1001,6 +1031,7 @@ void FullSystem::deliverTrackedFrame(FrameHessian* fh, bool needKF)
 
 		// 当前为true，将当前帧作为关键帧进行处理
 		if(needKF) makeKeyFrame(fh);
+		// 当前为false，将当前帧作为非关键帧进行处理
 		else makeNonKeyFrame(fh);
 	}
 	else
@@ -1111,11 +1142,13 @@ void FullSystem::makeNonKeyFrame( FrameHessian* fh)
 		boost::unique_lock<boost::mutex> crlock(shellPoseMutex); // 生命周期结束后自动解锁
 		assert(fh->shell->trackingRef != 0);
 		// mapping时将它当前位姿取出来得到camToWorld
+		// 1.此处与关键帧的处理一样
 		fh->shell->camToWorld = fh->shell->trackingRef->camToWorld * fh->shell->camToTrackingRef;
 		// 把此时估计的位姿取出来
 		fh->setEvalPT_scaled(fh->shell->camToWorld.inverse(),fh->shell->aff_g2l);
 	}
 
+	// 2.利用traceNewCoarse(fh);将进行点跟踪，优化关键帧未成熟点的逆深度（因为只对关键帧选点）。
 	traceNewCoarse(fh);  // 更新未成熟点(深度未收敛的点)
 	delete fh;
 }
@@ -1192,8 +1225,9 @@ void FullSystem::makeKeyFrame( FrameHessian* fh)
 	// 6.activatePointsMT();利用当前帧的信息优化所有 frameHessians 的 ImmaturePoint ，注意此时 frameHessians 里面包含了当前帧，因此在遍历的时候会跳过。
 	// 同样，此时由于第一帧中没有未成熟点，此函数相当于未执行。
 	// =========================== Activate Points (& flag for marginalization). =========================
-	activatePointsMT();
+	activatePointsMT(); // 将未成熟点转化为PointHessian
 	// 利用makeIDX()函数重新建立idx。
+	// （7） 重新建立idx：ef->makeIDX(); 此处的步骤（7）从 activatePointsMT() 中继续。（此处假设当前的第十帧是关键帧。）
 	ef->makeIDX();  // ? 为啥要重新设置ID呢, 是因为加新的帧了么
 
 
@@ -1202,7 +1236,7 @@ void FullSystem::makeKeyFrame( FrameHessian* fh)
 	// 7.后端滑窗优化
 	// 首先获取当前帧的frameEnergyTH，然后利用optimize()函数进行优化，优化结果为
 	// =========================== OPTIMIZE ALL =========================
-
+	// （8） 滑窗优化（此处假设当前的第十帧是关键帧。）
 	fh->frameEnergyTH = frameHessians.back()->frameEnergyTH;  // 这两个不是一个值么???
 	float rmse = optimize(setting_maxOptIterations);
 
@@ -1221,6 +1255,8 @@ void FullSystem::makeKeyFrame( FrameHessian* fh)
 			printf("I THINK INITIALIZATINO FAILED! Resetting.\n");
 			initFailed=true;
 		}
+		// （9）此时总共的关键帧有3个，因此还会根据上一步优化返回的结果判断初始化的质量： （此处假设当前的第十帧是关键帧。）
+		// 若rmse > 13*benchmark_initializerSlackFactor 则初始化失败。
 		if(allKeyFramesHistory.size()==3 && rmse > 13*benchmark_initializerSlackFactor)
 		{
 			printf("I THINK INITIALIZATINO FAILED! Resetting.\n");
@@ -1243,6 +1279,7 @@ void FullSystem::makeKeyFrame( FrameHessian* fh)
 //TODO 是否可以更加严格一些
 	// =========================== REMOVE OUTLIER =========================
 	// 9.removeOutliers();对未构成residual的残差点进行处理：利用dropPointsF()函数执行removePoint(p)，然后重新makeIDX();
+	// （10） removeOutliers(); （此处假设当前的第十帧是关键帧。）
 	removeOutliers();
 
 
@@ -1250,6 +1287,7 @@ void FullSystem::makeKeyFrame( FrameHessian* fh)
 
 	{
 		boost::unique_lock<boost::mutex> crlock(coarseTrackerSwapMutex);
+		// （11） （此处假设当前的第十帧是关键帧。）
 		coarseTracker_forNewKF->makeK(&Hcalib);  // 更新了内参, 因此重新make
 		// 10.setCoarseTrackingRef(frameHessians) 设置当前帧为下次跟踪的参考帧，并通过 makeCoarseDepthL0() 将目标帧是当前帧的点(即构建残差时投影到当前帧的点)
 		// 优化的逆深度建立 idepth[0]， weightSums[0]，然后通过对下层采样获取金字塔各层的 idepth_l = idepth[lvl] 和 weightSums_l = weightSums[lvl]。
@@ -1272,6 +1310,7 @@ void FullSystem::makeKeyFrame( FrameHessian* fh)
 	// =========================== (Activate-)Marginalize Points =========================
 	// 11.标记需要边缘化的点并对其进行边缘化操作，前面已经将未构成residual的点进行了删除，此处为了计算的实时性，会对满足一定条件的点进行边缘化处理
 	// （具体的不说了，后面会考虑写一篇专门介绍边缘化的博客）。
+	// （12） （此处假设当前的第十帧是关键帧。）
 	flagPointsForRemoval();
 	ef->dropPointsF();  // 扔掉drop的点
 	// 每次设置线性化点都会更新零空间
@@ -1287,6 +1326,7 @@ void FullSystem::makeKeyFrame( FrameHessian* fh)
 //[ ***step 10*** ] 生成新的点
 	// =========================== add new Immature points & new residuals =========================
 	// 12.makeNewTraces(fh, 0);对当前帧利用 pixelSelector->makeMaps()进行选点操作，并且生成 ImmaturePoint ， push_back到 newFrame->immaturePoints。
+	// （13） （此处假设当前的第十帧是关键帧。）
 	makeNewTraces(fh, 0);
 
 
@@ -1307,8 +1347,9 @@ void FullSystem::makeKeyFrame( FrameHessian* fh)
 	// 13.边缘化关键帧：marginalizeFrame(frameHessians[i]);，边缘化前面标记的关键帧。（同样，具体细节利用边缘化的博客来分析。）
 	for(unsigned int i=0;i<frameHessians.size();i++)
 		if(frameHessians[i]->flaggedForMarginalization)
-			{marginalizeFrame(frameHessians[i]); i=0;}
+			{marginalizeFrame(frameHessians[i]); i=0;}  // （14） （此处假设当前的第十帧是关键帧。）
 
+	// 至此第十帧作为关键帧的操作全部执行完毕
 
 
 	printLogLine();

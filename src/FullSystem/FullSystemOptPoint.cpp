@@ -48,6 +48,10 @@ namespace dso
 
 
 //@ 优化未成熟点逆深度, 并创建成PointHessian
+// 在 optimizeImmaturePoint() 函数中，将除了该点的主导帧之外的所有关键帧作为该点的目标帧，初始 ImmaturePointTemporaryResidual 类型的 residual ；
+// 利用 linearizeResidual()函数进行残差，优化矩阵， energy 等信息的计算；利用上步计算的优化矩阵求解迭代增量，重新计算 energy 和相关优化矩阵，误差减小
+// 则接受优化，进行迭代，误差增大则调整 lambda 重新迭代。迭代优化结束之后，根据优化结果生成 PointHessian* p，存储到 vector：:optimized 并建立
+// 残差项： PointFrameResidual* r，其中包括相关参数的设置。
 PointHessian* FullSystem::optimizeImmaturePoint(
 		ImmaturePoint* point, int minObs,
 		ImmaturePointTemporaryResidual* residuals)
@@ -82,6 +86,7 @@ PointHessian* FullSystem::optimizeImmaturePoint(
 //TODO 这种优化求的方法, 和三角化的方法, 哪个更好些
 	for(int i=0;i<nres;i++)
 	{
+		// 利用 linearizeResidual()函数进行残差，优化矩阵， energy 等信息的计算
 		lastEnergy += point->linearizeResidual(&Hcalib, 1000, residuals+i,lastHdd, lastbd, currentIdepth);
 		residuals[i].state_state = residuals[i].state_NewState;
 		residuals[i].state_energy = residuals[i].state_NewEnergy;
@@ -98,6 +103,7 @@ PointHessian* FullSystem::optimizeImmaturePoint(
 	if(print) printf("Activate point. %d residuals. H=%f. Initial Energy: %f. Initial Id=%f\n" ,
 			nres, lastHdd,lastEnergy,currentIdepth);
 
+	// 利用上步计算的优化矩阵求解迭代增量，重新计算energy和相关优化矩阵，误差减小则接受优化，进行迭代，误差增大则调整lambda重新迭代
 	float lambda = 0.1;
 	for(int iteration=0;iteration<setting_GNItsOnPointActivation;iteration++)
 	{
@@ -170,6 +176,7 @@ PointHessian* FullSystem::optimizeImmaturePoint(
 
 
 //[ ***step 3*** ] 把可以的点创建成PointHessian
+	// 迭代优化结束之后，根据优化结果生成 PointHessian* p ，存储到 optimized 并建立残差项：PointFrameResidual* r，其中包括相关参数的设置。
 	PointHessian* p = new PointHessian(point, &Hcalib);
 	if(!std::isfinite(p->energyTH)) {delete p; return (PointHessian*)((long)(-1));} // 丢弃无穷的点
 

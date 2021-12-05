@@ -575,12 +575,16 @@ bool CoarseTracker::trackNewestCoarse(
 	int maxIterations[] = {10,20,50,50,50};  	// 不同层迭代的次数
 	float lambdaExtrapolationLimit = 0.001;
 
+	// （1）获取两帧相对状态：
 	SE3 refToNew_current = lastToNew_out;		// 优化的初始值
 	AffLight aff_g2l_current = aff_g2l_out;
 
 	bool haveRepeated = false;  // 是否重复计算了
 
 	//* 使用金字塔进行跟踪, 从顶层向下开始跟踪
+	// （2）金字塔模型跟踪：从最高层开始，逐次往下进行跟踪。此处的优化变量为两帧间的相对状态（只有8维）。
+	// 首先利用 calcRes()计算 resOld 以及后面计算雅克比矩阵的中间量，将参考帧各层的像素点投影到当前帧，参考帧各层的像素点通过 makeCoarseDepthL0() 生成。
+	// 利用calcGSSSE()计算优化需要用到的矩阵信息，利用上步计算的一些中间量。
 	for(int lvl=coarsestLvl; lvl>=0; lvl--)
 	{
 		Mat88 H; Vec8 b;
@@ -619,6 +623,7 @@ bool CoarseTracker::trackNewestCoarse(
 		for(int iteration=0; iteration < maxIterations[lvl]; iteration++)
 		{
 			//[ ***step 2.1*** ] 计算增量
+			// 计算迭代增量并更新
 			Mat88 Hl = H;
 			for(int i=0;i<8;i++) Hl(i,i) *= (1+lambda);
 			Vec8 inc = Hl.ldlt().solve(-b);
@@ -668,6 +673,7 @@ bool CoarseTracker::trackNewestCoarse(
 			aff_g2l_new.a += incScaled[6];
 			aff_g2l_new.b += incScaled[7];
 
+			// 计算增量更新之后的resNew，若减小了则接受更新，然后进行迭代优化。否则调整lambda继续迭代。
 			Vec6 resNew = calcRes(lvl, refToNew_new, aff_g2l_new, setting_coarseCutoffTH*levelCutoffRepeat);
 			
 			bool accept = (resNew[0] / resNew[1]) < (resOld[0] / resOld[1]);  // 平均能量值小则接受
@@ -723,6 +729,7 @@ bool CoarseTracker::trackNewestCoarse(
 	}
 
 	// set!
+	// （3）设置优化结果：
 	lastToNew_out = refToNew_current;
 	aff_g2l_out = aff_g2l_current;
 
@@ -895,6 +902,8 @@ CoarseDistanceMap::~CoarseDistanceMap()
 
 
 //@ 对于目前所有的地图点投影, 生成距离场图
+// 在 makeDistanceMap() 函数里会利用金字塔第一层的内参将除当前帧以外的所有帧的所有点投影到当前帧，将投影位置存储到数组 bfsList1[]。
+// 然后利用 growDistBFS()进行处理，建立 fwdWarpedIDDistFinal ，后续判断能否生成 PointHessian 时用到。（此函数的具体原理还不太清楚）
 void CoarseDistanceMap::makeDistanceMap(
 		std::vector<FrameHessian*> frameHessians,
 		FrameHessian* frame)

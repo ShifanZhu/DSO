@@ -75,7 +75,16 @@ ImmaturePoint::~ImmaturePoint()
  * * SKIP -> point has not been updated.
  */
  //@ 使用深度滤波对未成熟点进行深度估计
-ImmaturePointStatus ImmaturePoint::traceOn(FrameHessian* frame,const Mat33f &hostToFrame_KRKi, const Vec3f &hostToFrame_Kt, const Vec2f& hostToFrame_affine, CalibHessian* HCalib, bool debugPrint)
+// traceOn()函数解析：
+// （1）利用 idepth_min 计算出未成熟点在当前帧的投影位置，得到（ uMin，vMin ），对投影位置进行判断，不满足条件的设置 ImmaturePointStatus::IPS_OOB;
+// （2）若定义了 idepth_max ，则利用 idepth_max 计算出未成熟点在当前帧的投影位置，得到（ uMax，vMax ），对投影位置进行判断，不满足条件的设置 ImmaturePointStatus::IPS_OOB;
+// （3）若未定义 idepth_max ，则取 idepth_max 为0.01，计算出极线方向，设置步长为 dist = maxPixSearch;，则可以通过计算得到（ uMax ， vMax ）。
+//	   判断 uMax 和 vMax ，不满足条件的设置 ImmaturePointStatus::IPS_OOB;。
+// （4）利用前三步计算的结果确定极线搜索的方向，然后通过调整步长（次数为numSteps），选取其中最好的结果作为初值用于后续的高斯牛顿优化。
+// （5）注意此处优化的变量是步长，迭代优化的过程与其他优化一样，通过setting_trace_GNIterations和setting_trace_GNThreshold确定何时退出迭代。
+// （6）优化结束之后，返回未成熟点的跟踪状态。
+ImmaturePointStatus ImmaturePoint::traceOn(FrameHessian* frame,const Mat33f &hostToFrame_KRKi, const Vec3f &hostToFrame_Kt, const Vec2f& hostToFrame_affine, 
+											CalibHessian* HCalib, bool debugPrint)
 {
 	if(lastTraceStatus == ImmaturePointStatus::IPS_OOB) return lastTraceStatus;
 
@@ -99,6 +108,7 @@ ImmaturePointStatus ImmaturePoint::traceOn(FrameHessian* frame,const Mat33f &hos
 	
 	// ============== project min and max. return if one of them is OOB ===================
 //[ ***step 1*** ] 计算出来搜索的上下限, 对应idepth_max, idepth_min
+	// （1）利用idepth_min计算出未成熟点在当前帧的投影位置，得到（uMin，vMin），对投影位置进行判断，不满足条件的设置ImmaturePointStatus::IPS_OOB;
 	Vec3f pr = hostToFrame_KRKi * Vec3f(u,v, 1);
 	Vec3f ptpMin = pr + hostToFrame_Kt*idepth_min;
 	float uMin = ptpMin[0] / ptpMin[2];
@@ -118,6 +128,7 @@ ImmaturePointStatus ImmaturePoint::traceOn(FrameHessian* frame,const Mat33f &hos
 	float uMax;
 	float vMax;
 	Vec3f ptpMax;
+	// （2）若定义了 idepth_max ，则利用 idepth_max 计算出未成熟点在当前帧的投影位置，得到（ uMax ， vMax ），对投影位置进行判断，不满足条件的设置 ImmaturePointStatus::IPS_OOB;
 	if(std::isfinite(idepth_max))
 	{
 		ptpMax = pr + hostToFrame_Kt*idepth_max;
@@ -150,6 +161,8 @@ ImmaturePointStatus ImmaturePoint::traceOn(FrameHessian* frame,const Mat33f &hos
 		}
 		assert(dist>0);
 	}
+	// （3）若未定义 idepth_max ，则取 idepth_max 为0.01，计算出极线方向，设置步长为 dist = maxPixSearch;，则可以通过计算得到（ uMax ， vMax ）。
+	//	   判断 uMax 和 vMax ，不满足条件的设置 ImmaturePointStatus::IPS_OOB;。
 	else
 	{
 		//* 上限无穷大, 则设为最大值
@@ -220,6 +233,7 @@ ImmaturePointStatus ImmaturePoint::traceOn(FrameHessian* frame,const Mat33f &hos
 
 	// ============== do the discrete search ===================
 //[ ***step 3*** ] 在极线上找到最小的光度误差的位置, 并计算和第二次的比值作为质量
+	// （4）利用前（3）步计算的结果确定极线搜索的方向，然后通过调整步长（次数为 numSteps ），选取其中最好的结果作为初值用于后续的高斯牛顿优化。
 	dx /= dist; // cos
 	dy /= dist;	// sin
 
@@ -316,6 +330,7 @@ ImmaturePointStatus ImmaturePoint::traceOn(FrameHessian* frame,const Mat33f &hos
 
 //[ ***step 4*** ] 在上面的最优位置进行线性搜索, 进行求精
 	// ============== do GN optimization ===================
+	// （5）注意此处优化的变量是步长，迭代优化的过程与其他优化一样，通过 setting_trace_GNIterations 和 setting_trace_GNThreshold 确定何时退出迭代。
 	float uBak=bestU, vBak=bestV, gnstepsize=1, stepBack=0;
 	if(setting_trace_GNIterations>0) bestEnergy = 1e5;
 	int gnStepsGood=0, gnStepsBad=0;
@@ -419,6 +434,8 @@ ImmaturePointStatus ImmaturePoint::traceOn(FrameHessian* frame,const Mat33f &hos
 	}
 	if(idepth_min > idepth_max) std::swap<float>(idepth_min, idepth_max);
 
+
+	// （6）优化结束之后，返回未成熟点的跟踪状态。  没太看出来
 
 	if(!std::isfinite(idepth_min) || !std::isfinite(idepth_max) || (idepth_max<0))
 	{
