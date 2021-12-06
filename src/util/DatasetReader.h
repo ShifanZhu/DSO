@@ -233,7 +233,7 @@ public:
 	inline float* getPhotometricGamma()
 	{
 		if(undistort==0 || undistort->photometricUndist==0) return 0;
-		return undistort->photometricUndist->getG();
+		return undistort->photometricUndist->getG(); // 响应函数值逆变换
 	}
 
 

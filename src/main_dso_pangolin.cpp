@@ -397,7 +397,7 @@ int main( int argc, char** argv )
 
 	FullSystem* fullSystem = new FullSystem();
 	// setGammaFunction(): 将经转换后的pcalib.txt 文件的数据G[i]进行一个运算后赋值给Hcalib.B[i]。
-	// 其中 reader->getPhotometricGamma()获取的是经转换之后的 pcalib.txt 文件的数据，G[i].
+	// 其中 reader->getPhotometricGamma()获取的是经转换之后的 pcalib.txt 文件的数据，G[i] (响应函数值逆变换).
 	fullSystem->setGammaFunction(reader->getPhotometricGamma());
 	fullSystem->linearizeOperation = (playbackSpeed==0);
 

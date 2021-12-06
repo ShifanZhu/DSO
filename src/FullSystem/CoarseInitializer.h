@@ -122,7 +122,8 @@ private:
 	Eigen::Vector3f* dINew[PYR_LEVELS];
 	Eigen::Vector3f* dIFist[PYR_LEVELS];
 
-	Eigen::DiagonalMatrix<float, 8> wM;
+	// 可能用来在对角存放，逆深度、旋转量、平移量、相机焦距、光度仿射系数等的比例系数
+	Eigen::DiagonalMatrix<float, 8> wM; // 这个变量是啥？
 
 	// temporary buffers for H and b.
 	Vec10f* JbBuffer;			//!< 用来计算Schur的 0-7: sum(dd * dp). 8: sum(res*dd). 9: 1/(1+sum(dd*dd))=inverse hessian entry.

@@ -61,9 +61,10 @@ CoarseTracker::CoarseTracker(int ww, int hh) : lastRef_aff_g2l(0,0)
 	// make coarse tracking templates.
 	for(int lvl=0; lvl<pyrLevelsUsed; lvl++)
 	{
-		int wl = ww>>lvl;
+				int wl = ww>>lvl; // 向右移1位，缩小两倍，向右移三位，缩小八倍
         int hl = hh>>lvl;
 
+				// 分配对齐的内存
         idepth[lvl] = allocAligned<4,float>(wl*hl, ptrToDelete);
         weightSums[lvl] = allocAligned<4,float>(wl*hl, ptrToDelete);
         weightSums_bak[lvl] = allocAligned<4,float>(wl*hl, ptrToDelete);
@@ -76,21 +77,21 @@ CoarseTracker::CoarseTracker(int ww, int hh) : lastRef_aff_g2l(0,0)
 	}
 
 	// warped buffers
-    buf_warped_idepth = allocAligned<4,float>(ww*hh, ptrToDelete);
-    buf_warped_u = allocAligned<4,float>(ww*hh, ptrToDelete);
-    buf_warped_v = allocAligned<4,float>(ww*hh, ptrToDelete);
-    buf_warped_dx = allocAligned<4,float>(ww*hh, ptrToDelete);
-    buf_warped_dy = allocAligned<4,float>(ww*hh, ptrToDelete);
-    buf_warped_residual = allocAligned<4,float>(ww*hh, ptrToDelete);
-    buf_warped_weight = allocAligned<4,float>(ww*hh, ptrToDelete);
-    buf_warped_refColor = allocAligned<4,float>(ww*hh, ptrToDelete);
+    buf_warped_idepth = allocAligned<4,float>(ww*hh, ptrToDelete); // 投影得到的点的逆深度
+    buf_warped_u = allocAligned<4,float>(ww*hh, ptrToDelete); // 投影得到的归一化坐标
+    buf_warped_v = allocAligned<4,float>(ww*hh, ptrToDelete); // 投影得到的归一化坐标
+    buf_warped_dx = allocAligned<4,float>(ww*hh, ptrToDelete); // 投影点的图像梯度
+    buf_warped_dy = allocAligned<4,float>(ww*hh, ptrToDelete); // 投影点的图像梯度
+    buf_warped_residual = allocAligned<4,float>(ww*hh, ptrToDelete); // 投影得到的残差
+    buf_warped_weight = allocAligned<4,float>(ww*hh, ptrToDelete); // 投影的huber函数权重
+    buf_warped_refColor = allocAligned<4,float>(ww*hh, ptrToDelete); // 投影点参考帧上的灰度值
 
 
-	newFrame = 0;
-	lastRef = 0;
+	newFrame = 0; // 新来的一帧
+	lastRef = 0; // 参考帧
 	debugPlot = debugPrint = true;
 	w[0]=h[0]=0;
-	refFrameID=-1;
+	refFrameID=-1; // 参考帧id
 }
 CoarseTracker::~CoarseTracker()
 {
@@ -101,6 +102,7 @@ CoarseTracker::~CoarseTracker()
 
 //@ 构造内参矩阵, 以及一些中间量,
 //TODO  每个类都有这个, 直接用一个多好
+//! 后面带G的是global变量
 void CoarseTracker::makeK(CalibHessian* HCalib)
 {
 	w[0] = wG[0];
@@ -876,14 +878,18 @@ void CoarseTracker::debugPlotIDepthMapFloat(std::vector<IOWrap::Output3DWrapper*
 CoarseDistanceMap::CoarseDistanceMap(int ww, int hh)
 {
 	//* 在第一层上算的, 所以除4
+	// 距离场的数值
 	fwdWarpedIDDistFinal = new float[ww*hh/4];
 
+	// 投影到frame的坐标
 	bfsList1 = new Eigen::Vector2i[ww*hh/4];
+	// 和1轮换使用
 	bfsList2 = new Eigen::Vector2i[ww*hh/4];
 
 	int fac = 1 << (pyrLevelsUsed-1);
 
 
+	// 点，主帧，目标帧，残差对变量的各种雅克比等
 	coarseProjectionGrid = new PointFrameResidual*[2048*(ww*hh/(fac*fac))];
 	coarseProjectionGridNum = new int[ww*hh/(fac*fac)];
 
