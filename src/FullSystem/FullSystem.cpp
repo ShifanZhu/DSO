@@ -871,7 +871,7 @@ void FullSystem::flagPointsForRemoval()
  * DSO的入口是FullSystem::addActiveFrame，输入的图像生成 FrameHessian 和 FrameShell 的对象， FrameShell 是 FrameHessian 的成员变量，
  * FrameHessian 保存图像信息， FrameShell 保存帧的位置姿态信息。代码中一般用 fh 指针变量指向当前帧的 FrameHessian。在处理完成当前帧之后，
  * 会删除 FrameHessian，而保存 FrameShell 在变量 allFrameHistory 中，作为最后整条轨迹的输出。对输入图像会做预处理，如果有光度标定,像素值
- * 不是灰度值，而是处理后的辐射值，这些辐射值的大小是[0, 255]，float型。数据预处理部分是在FullSystem::addActiveFrame中调用
+ * 不是灰度值，而是处理后的辐射值，这些辐射值的大小是[0, 255]，float型。数据预处理部分是在FullSystem::addActiveFrame 中调用
  * 的 FrameHessian::makeImages ，这个函数为当前帧的图像建立图像金字塔，并且计算每一层图像的梯度。这些计算结果都存储在 FrameHessian 的成员变量中，
  * 1. dIp 每一层图像的辐射值、x 方向梯度、y 方向梯度；2. dI 指向 dIp[0] 也就是原始图像的信息；3. absSquaredGrad 存储 xy 方向梯度值的平方和。
  */
@@ -883,14 +883,14 @@ void FullSystem::addActiveFrame( ImageAndExposure* image, int id )
 
 
 	//[ ***step 2*** ] 创建FrameHessian和FrameShell, 并进行相应初始化, 并存储所有帧
-	// 初始化存储图像帧信息的类，生成类FrameHessian，FrameShell的对象，并设置初值，
-	// 包括：camToWorld，aff_g2l等，并将当前帧的信息加入到allFrameHistory。
+	// 初始化存储图像帧信息的类，生成类 FrameHessian ， FrameShell 的对象，并设置初值，
+	// 包括： camToWorld ， aff_g2l 等，并将当前帧的信息加入到 allFrameHistory 。
 	// =========================== add into allFrameHistory =========================
-	// 如果到了第二帧，首先与第一帧一样，进行图像帧相关信息的初始定义，并设置初值。
-	// 经过八帧之后，此时已经初始化成功，在讨论第九帧的时候，我将其设为非关键帧来介绍对非关键帧的处理。
+	// - 如果到了第二帧，首先与第一帧一样，进行图像帧相关信息的初始定义，并设置初值。
+	// = 经过八帧之后，此时已经初始化成功，在讨论第九帧的时候，我将其设为非关键帧来介绍对非关键帧的处理。
 	// 当前帧生成FrameHessian，FrameShell的对象
-	FrameHessian* fh = new FrameHessian();
-	FrameShell* shell = new FrameShell();
+	FrameHessian* fh = new FrameHessian(); // 保存图像信息
+	FrameShell* shell = new FrameShell(); // 保存帧的位置姿态信息
 	// 相关值的初始设置
 	shell->camToWorld = SE3(); 		// no lock required, as fh is not used anywhere yet.
 	shell->aff_g2l = AffLight(0,0); // 光度仿射变换, 用来建模曝光时间
@@ -898,11 +898,11 @@ void FullSystem::addActiveFrame( ImageAndExposure* image, int id )
     shell->timestamp = image->timestamp;
     shell->incoming_id = id;
 	fh->shell = shell;
-	// 加入到allFrameHistory
+	// 加入到allFrameHistory (所有的历史帧)
 	allFrameHistory.push_back(shell);  // 只把简略的shell存起来
 
 	//[ ***step 3*** ] 得到曝光时间, 生成金字塔, 计算整个图像梯度
-	// 对当前帧makeImages()，计算当前图像帧各层金字塔的像素灰度值以及梯度。
+	// 对当前帧 makeImages()，计算当前图像帧各层金字塔的像素灰度值以及梯度。
 	// =========================== make Images / derivatives etc. =========================
 	// makeImages()计算梯度，梯度平方和。
 	fh->ab_exposure = image->exposure_time; //曝光时间设置

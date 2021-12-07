@@ -496,8 +496,8 @@ int main( int argc, char** argv )
             }
 
 
-						// 图像帧处理入口
-						// 读取图像之后，运行前的准备已经完成，开始对每一帧图像进行处理。
+			// 图像帧处理入口
+			// 读取图像之后，运行前的准备已经完成，开始对每一帧图像进行处理。
             if(!skipFrame) fullSystem->addActiveFrame(img, i); // 此处的img进行了G的映射，以及乘了渐晕因子
 
 
