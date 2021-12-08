@@ -874,9 +874,9 @@ void CoarseInitializer::makeGradients(Eigen::Vector3f** data)
 
 // CoarseInitializer::setFirst，计算图像的每一层内参, 再针对不同层数选择大梯度像素, 第0层比较复杂1d, 2d, 4d大小block来选择3个层次的像素选取点，
 // 其它层则选出goodpoints, 作为后续第二帧匹配生成 pointHessians 和 immaturePoints 的候选点，这些点存储在 CoarseInitializer::points 中。
-// 每一层点之间都有联系，在 CoarseInitializer::makeNN 中计算每个点最邻近的10个点 neighbours，在上一层的最邻近点 parent。
-// pointHessians 是成熟点，具有逆深度信息的点，能够在其他影像追踪到的点。immaturePoints 是未成熟点，需要使用非关键帧的影像对它的逆深度进行优化，
-// 在使用关键帧将它转换成 pointHessians，并且加入到窗口优化。
+// 每一层点之间都有联系，在 CoarseInitializer::makeNN 中计算每个点最邻近的10个点 neighbours ，在上一层的最邻近点 parent。
+// pointHessians 是成熟点，具有逆深度信息的点，能够在其他影像追踪到的点。 immaturePoints 是未成熟点，需要使用非关键帧的影像对它的逆深度进行优化，
+// 在使用关键帧将它转换成 pointHessians ，并且加入到窗口优化。
 //首先利用makeK()函数计算每层图像金字塔的内参，计算方法与上一篇博客中提到的一样，并且将当前帧赋给firstFrame。
 void CoarseInitializer::setFirst(	CalibHessian* HCalib, FrameHessian* newFrameHessian)
 {

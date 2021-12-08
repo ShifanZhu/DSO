@@ -906,7 +906,7 @@ void FullSystem::addActiveFrame( ImageAndExposure* image, int id )
 	// =========================== make Images / derivatives etc. =========================
 	// makeImages()计算梯度，梯度平方和。
 	fh->ab_exposure = image->exposure_time; //曝光时间设置
-    fh->makeImages(image->image, &Hcalib);
+    fh->makeImages(image->image, &Hcalib); // Hcalib 是 CalibHessian 类型
 
 
 

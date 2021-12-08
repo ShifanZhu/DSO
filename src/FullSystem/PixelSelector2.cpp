@@ -64,13 +64,16 @@ PixelSelector::~PixelSelector()
 }
 
 //* 占据 below% 的梯度值作为阈值
+// hist[0] 所有的像素个数
+// hist0[g+1] 1-49 存相应梯度个数
+// below default = 0.5;
 int computeHistQuantil(int* hist, float below)
 {
-	int th = hist[0]*below+0.5f; // 最低的像素个数
-	for(int i=0;i<90;i++) // 90? 这么随便....
+	int th = hist[0]*below+0.5f; // 最低的像素个数,取所以的像素个数的50%
+	for(int i=0;i<90;i++) // 90? 这么随便....，相当于相信在90个之内一定能取够th个
 	{
-		th -= hist[i+1];  // 梯度值为0-i的所有像素个数占 below %
-		if(th<0) return i;
+		th -= hist[i+1];  // 梯度值为0-i的所有像素个数占 below %，i是灰度值，hist[i]是该灰度值的像素个数
+		if(th<0) return i; // 返回的是灰色梯度最小的前50%的像素的序号
 	}
 	return 90;
 }
@@ -80,6 +83,10 @@ void PixelSelector::makeHists(const FrameHessian* const fh)
 {
 	gradHistFrame = fh;
 	float * mapmax0 = fh->absSquaredGrad[0]; //第0层梯度平方和
+
+	// absSquaredGrad的用法参考以下两行
+	//	abs=absSquaredGrad[1]; ///获取金字塔第1层，若要获取其他层，修改中括号里面即可；
+	// abs[idx]   表示图像金字塔第1层， idx 位置处的像素x,y方向的梯度平方和
 
 	// weight and height
 	int w = wG[0];
@@ -91,6 +98,8 @@ void PixelSelector::makeHists(const FrameHessian* const fh)
 	thsStep = w32;
 
 
+	// 先把图片分成32*32个大网格，然后在每个大网格中再计算每个像素的坐标
+	// TODO 对于event camera的分辨率，32是不是太大了，这个值是不是应该根据相机分辨率调整？
 	for(int y=0;y<h32;y++)
 		for(int x=0;x<w32;x++)
 		{
@@ -102,37 +111,44 @@ void PixelSelector::makeHists(const FrameHessian* const fh)
 			{
 				int it = i+32*x; // 该格里第(j,i)像素的整个图像坐标
 				int jt = j+32*y;
-				if(it>w-2 || jt>h-2 || it<1 || jt<1) continue; //内
+				if(it>w-2 || jt>h-2 || it<1 || jt<1) continue; //最外围一圈去掉
 				int g = sqrtf(map0[i+j*w]); // 梯度平方和开根号
 				if(g>48) g=48; //? 为啥是48这个数，因为一共分为了50格
 				hist0[g+1]++; // 1-49 存相应梯度个数
 				hist0[0]++;  // 所有的像素个数
+				// TODO 对于event camera，此处的梯度可能都是很大的值，即可能都是48
 			}
 			// 得到每一block的阈值
+			// setting_minGradHistCut default = 0.5;
+			// setting_minGradHistAdd default = 7;
+			// computeHistQuantil 函数返回的是灰色梯度最小的前50%的像素的序号g，其实就是灰色梯度平方和开根号,然后
+			// 传给ths[]，用来记录当前大网格的灰度值阈值
+			// TODO 为什么返回灰色梯度最小的呢？为啥不用灰色梯度最大的呢？
 			ths[x+y*w32] = computeHistQuantil(hist0,setting_minGradHistCut) + setting_minGradHistAdd;
 		}
 
 	// 使用3*3的窗口求平均值来平滑
+	// TODO 为什么要平滑呢？对事件相机有影响吗？
 	for(int y=0;y<h32;y++)
 		for(int x=0;x<w32;x++)
 		{
 			float sum=0,num=0;
 			if(x>0)
 			{
-				if(y>0) 	{num++; 	sum+=ths[x-1+(y-1)*w32];}
-				if(y<h32-1) {num++; 	sum+=ths[x-1+(y+1)*w32];}
-				num++; sum+=ths[x-1+(y)*w32];
+				if(y>0) 	{num++; 	sum+=ths[x-1+(y-1)*w32];} // 左上角的
+				if(y<h32-1) {num++; 	sum+=ths[x-1+(y+1)*w32];} // 左下角的
+				num++; sum+=ths[x-1+(y)*w32]; // 左边的
 			}
 
 			if(x<w32-1)
 			{
-				if(y>0) 	{num++; 	sum+=ths[x+1+(y-1)*w32];}
-				if(y<h32-1) {num++; 	sum+=ths[x+1+(y+1)*w32];}
-				num++; sum+=ths[x+1+(y)*w32];
+				if(y>0) 	{num++; 	sum+=ths[x+1+(y-1)*w32];} // 右上角的
+				if(y<h32-1) {num++; 	sum+=ths[x+1+(y+1)*w32];} // 右下角的
+				num++; sum+=ths[x+1+(y)*w32]; // 右边的
 			}
 
-			if(y>0) 	{num++; 	sum+=ths[x+(y-1)*w32];}
-			if(y<h32-1) {num++; 	sum+=ths[x+(y+1)*w32];}
+			if(y>0) 	{num++; 	sum+=ths[x+(y-1)*w32];} // 上边的
+			if(y<h32-1) {num++; 	sum+=ths[x+(y+1)*w32];} // 下边的
 			num++; sum+=ths[x+y*w32];
 
 			thsSmoothed[x+y*w32] = (sum/num) * (sum/num);
@@ -150,9 +166,9 @@ void PixelSelector::makeHists(const FrameHessian* const fh)
  * @ param: 	fh				帧Hessian数据结构
  * @			map_out			选出的地图点
  * @			density		 	每一金字塔层要的点数(密度)
- * @			recursionsLeft	最大递归次数
- * @			plot			画图
- * @			thFactor		阈值因子
+ * @			recursionsLeft	最大递归次数 default 1
+ * @			plot			画图 default false
+ * @			thFactor		阈值因子 default 2
  * @
  * @ note:		使用递归
  *******************************/
@@ -169,7 +185,7 @@ int PixelSelector::makeMaps(
 	float numHave=0;
 	float numWant=density;
 	float quotia;
-	int idealPotential = currentPotential;
+	int idealPotential = currentPotential; // currentPotential 第一次传进来是3
 
 
 //	if(setting_pixelSelectionUseFast>0 && allowFast)
@@ -327,7 +343,7 @@ int PixelSelector::makeMaps(
  * 
  * @ param: 		fh						帧的一些信息
  * @				map_out					选中的像素点及所在层
- * @				pot(currentPotential)	选点的范围大小, 一个pot内选一个
+ * @				pot(currentPotential 3)	选点的范围大小, 一个pot内选一个梯度最大的
  * @				thFactor				阈值因子(乘数)
  * 
  * @ note:			返回的是每一层选择的点的个数
@@ -346,7 +362,15 @@ Eigen::Vector3i PixelSelector::select(const FrameHessian* const fh,
 {
 	//const 在*左, 指针内容不可改, 在*右指针不可改
 	// 等价const Eigen::Vector3f * const
+	// //* 图像导数[0]:辐照度  [1]:x方向导数  [2]:y方向导数, （指针表示图像）
 	Eigen::Vector3f const * const map0 = fh->dI;
+	// dI 和 absSquaredGrad 的调用方法如下
+	// dI=dIp[0];  获取金字塔第0层，若要获取其他层，修改中括号里面即可；
+	// dI[idx][0]  表示图像金字塔第0层，idx位置处的像素的像素灰度值;(这是因为DSO中存储图像像素值都是采用一维数组来表示，类似于opencv里面的data数组。)
+	// dI[idx][1]  表示图像金字塔第0层，idx位置处的像素的x方向的梯度
+	// dI[idx][2]  表示图像金字塔第0层，idx位置处的像素的y方向的梯度
+	// abs=absSquaredGrad[1]; ///获取金字塔第1层，若要获取其他层，修改中括号里面即可；
+	// abs[idx]   表示图像金字塔第1层， idx 位置处的像素x,y方向的梯度平方和
 
 	// 0, 1, 2层的梯度平方和
 	float * mapmax0 = fh->absSquaredGrad[0];
@@ -364,6 +388,7 @@ Eigen::Vector3i PixelSelector::select(const FrameHessian* const fh,
 	//! 每个pot里面的方向随机选取的, 防止特征相同, 重复
 
 	// 模都是1
+	// 在第一象限和第四象限的16个点
 	const Vec2f directions[16] = {
 	         Vec2f(0,    1.0000),
 	         Vec2f(0.3827,    0.9239),
@@ -383,12 +408,14 @@ Eigen::Vector3i PixelSelector::select(const FrameHessian* const fh,
 	         Vec2f(0.1951,   -0.9808)};
 
 	//? 在哪改变的状态 PixelSelectorStatus ?
+	// memset 函数的功能是：将指针变量 s 所指向的前 n 字节的内存单元用一个“整数” c 替换，注意 c 是 int 型。s 是 void* 型的
+	// 指针变量，所以它可以为任何类型的数据进行初始化。
 	memset(map_out,0,w*h*sizeof(PixelSelectorStatus));  // 不同选择状态的数目不同
 
 
-	// 金字塔层阈值的减小倍数
+	// 金字塔层阈值的减小倍数 setting_gradDownweightPerLevel 默认值是 0.75
 	float dw1 = setting_gradDownweightPerLevel; // 第二层
-	float dw2 = dw1*dw1; // 第三层
+	float dw2 = dw1*dw1; // 第三层。每一层在上一层的基础上乘以0.75
 
 	// 第2层1个pot对应第1层4个pot, 第1层1个pot对应第0层的4个pot,
 	// 第0层的4个pot里面只要选一个像素, 就不在对应高层的pot里面选了,
@@ -397,16 +424,16 @@ Eigen::Vector3i PixelSelector::select(const FrameHessian* const fh,
 	// 从顶层向下层遍历, 写的挺有意思!
 
 	int n3=0, n2=0, n4=0;
-	//* 第2层中, 每隔pot选一个点遍历
+	//* 第3层中, 每隔4*pot选一个点遍历， pot 默认值是3
 	for(int y4=0;y4<h;y4+=(4*pot)) for(int x4=0;x4<w;x4+=(4*pot))
 	{	
 		// 该点的邻域(向上取4pot或末尾余数)大小
-		int my3 = std::min((4*pot), h-y4);
+		int my3 = std::min((4*pot), h-y4); // 如果不够4*pot就取h-y4
 		int mx3 = std::min((4*pot), w-x4);
 		int bestIdx4=-1; float bestVal4=0;
 		// 随机系数
 		Vec2f dir4 = directions[randomPattern[n2] & 0xF]; // 取低4位, 0-15, 和directions对应
-		//* 上面的领域范围内, 在第1层进行遍历, 每隔pot一个点
+		//* 下一个for循环在上面的领域范围内（也就是4*pot × 4*pot的方格内遍历）, 在第2层进行遍历, 每隔2*pot一个点
 		for(int y3=0;y3<my3;y3+=(2*pot)) for(int x3=0;x3<mx3;x3+=(2*pot))
 		{
 			int x34 = x3+x4; // 对应第0层坐标
@@ -416,7 +443,7 @@ Eigen::Vector3i PixelSelector::select(const FrameHessian* const fh,
 			int mx2 = std::min((2*pot), w-x34);
 			int bestIdx3=-1; float bestVal3=0;
 			Vec2f dir3 = directions[randomPattern[n2] & 0xF];  
-			//* 上面的邻域范围内, 变换到第0层, 每隔pot遍历
+			//* 下一个for循环在上面的领域范围内（也就是2*pot × 2*pot的方格内遍历）, 在第1层进行遍历, 每隔pot一个点
 			//! 每个pot大小格里面一个大于阈值的最大的像素
 			for(int y2=0;y2<my2;y2+=pot) for(int x2=0;x2<mx2;x2+=pot)
 			{
@@ -426,6 +453,7 @@ Eigen::Vector3i PixelSelector::select(const FrameHessian* const fh,
 				int mx1 = std::min(pot, w-x234);
 				int bestIdx2=-1; float bestVal2=0;
 				Vec2f dir2 = directions[randomPattern[n2] & 0xF];
+				//* 下一个for循环在上面的领域范围内（也就是pot × pot的方格内遍历）, 在第0层进行遍历, 每隔pot一个点
 				//* 第0层中的,pot大小邻域内遍历
 				for(int y1=0;y1<my1;y1+=1) for(int x1=0;x1<mx1;x1+=1)
 				{
@@ -437,17 +465,23 @@ Eigen::Vector3i PixelSelector::select(const FrameHessian* const fh,
 
 					if(xf<4 || xf>=w-5 || yf<4 || yf>h-4) continue;
 
-					// 直方图求得阈值, 除以32确定在哪个阈值范围, 
-					//! 可以确定是每个grid, 32格大小
+					// 直方图求得阈值, 除以32确定在哪个大网格内，然后得到阈值 
+					//!还是每个blocks大小为32*32, 不是论文里的32*32个网格?
+					//! 可以确定是每个grid, 32格大小，thsStep的值为32
 					float pixelTH0 = thsSmoothed[(xf>>5) + (yf>>5) * thsStep];
-					float pixelTH1 = pixelTH0*dw1;
+					float pixelTH1 = pixelTH0*dw1; // 依次直接乘以0.75作为上一层的阈值
 					float pixelTH2 = pixelTH1*dw2;
 
-					
-					float ag0 = mapmax0[idx]; // 第0层梯度模
-					if(ag0 > pixelTH0*thFactor)
+					// mapmax0[idx] 表示第0层idx处像素的梯度平方和
+					float ag0 = mapmax0[idx]; // 第0层idx处像素的梯度模
+					if(ag0 > pixelTH0*thFactor) // thFactor值为固定值2，为啥要乘以2呢？TODO
 					{
-						Vec2f ag0d = map0[idx].tail<2>();  // 后两位是图像导数
+						// map0[idx][0]  表示图像金字塔第0层，idx位置处的像素的像素灰度值;
+						// map0[idx][1]  表示图像金字塔第0层，idx位置处的像素的x方向的梯度
+						// map0[idx][2]  表示图像金字塔第0层，idx位置处的像素的y方向的梯度
+						Vec2f ag0d = map0[idx].tail<2>();  // 后两位是图像idx处x y方向上的灰度梯度
+						// 乘以dir2表明将x y方向上的灰度梯度投影到dir2的方向上，如乘以[1,0]就是只看x方向梯度
+						// TODO 为什么投影到此dir2方向呢？
 						float dirNorm = fabsf((float)(ag0d.dot(dir2)));   // 以这个方向上的梯度来判断
 						if(!setting_selectDirectionDistribution) dirNorm = ag0;
 
@@ -455,8 +489,10 @@ Eigen::Vector3i PixelSelector::select(const FrameHessian* const fh,
 						{ bestVal2 = dirNorm; bestIdx2 = idx; bestIdx3 = -2; bestIdx4 = -2;}
 					}
 					
-					if(bestIdx3==-2) continue; // 有了则不在其它层选点, 但是还会在该pot里选最大的
+					if(bestIdx3==-2) continue; // 如果当前像素点在当前第0层找到更大的梯度（大于pixelTH0*thFactor），则不在更上层寻找,只在当前第0层寻找最大的梯度
+												// 如果当前像素点没有在第0层找到满足的梯度，则在更上层(第1层)将阈值降为原来的0.75继续找。
 
+					// 第1层idx处像素的梯度平方和.此处的idx是在第0层的xy基础上乘以0.5
 					float ag1 = mapmax1[(int)(xf*0.5f+0.25f) + (int)(yf*0.5f+0.25f)*w1]; // 第1层
 					if(ag1 > pixelTH1*thFactor)
 					{
@@ -469,6 +505,7 @@ Eigen::Vector3i PixelSelector::select(const FrameHessian* const fh,
 					}
 					if(bestIdx4==-2) continue;
 
+					// 第2层idx处像素的梯度平方和.此处的idx是在第0层的xy基础上乘以0.25
 					float ag2 = mapmax2[(int)(xf*0.25f+0.125) + (int)(yf*0.25f+0.125)*w2]; // 第2层
 					if(ag2 > pixelTH2*thFactor)
 					{
@@ -481,14 +518,16 @@ Eigen::Vector3i PixelSelector::select(const FrameHessian* const fh,
 					}
 				}
 
+				// 上述 idx 和 bestIdx* 都是在第0层的
+
 				// 第0层的pot循环完, 若有则添加标志
 				if(bestIdx2>0)
 				{
 					map_out[bestIdx2] = 1;
 					// 高层pot中有更好的了，满足更严格要求的，就不用满足pixelTH1的了
-                    // bug bestVal3没有什么用，因为bestIdx3=-2直接continue了
+                    // bug bestVal3 没有什么用，因为 bestIdx3=-2直接continue了 // 此处应该不是bug, bestIdx3 初始值是-1，第0层找到更大的才置-2
 					bestVal3 = 1e10;  // 第0层找到了, 就不在高层找了
-					n2++; // 计数
+					n2++; // 计数，n2 n3 n4分别表示第0 1 2层满足梯度阈值的个数
 				}
 			}
 			// 第0层没有, 则在第1层选
