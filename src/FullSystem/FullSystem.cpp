@@ -921,7 +921,7 @@ void FullSystem::addActiveFrame( ImageAndExposure* image, int id )
 	{
 		// use initializer!
 		//[ ***step 4.1*** ] 加入第一帧
-		if(coarseInitializer->frameID<0)	// first frame set. fh is kept by coarseInitializer. 所有关键帧的序号
+		if(coarseInitializer->frameID<0)	// first frame set. fh is kept by coarseInitializer. 所有关键帧的序号，初始值为-1
 		{
 			// 初始化操作，设置第一帧。
 			coarseInitializer->setFirst(&Hcalib, fh);
