@@ -69,7 +69,7 @@ PixelSelector::~PixelSelector()
 // below default = 0.5;
 int computeHistQuantil(int* hist, float below)
 {
-	int th = hist[0]*below+0.5f; // 最低的像素个数,取所以的像素个数的50%
+	int th = hist[0]*below+0.5f; // 比较低的像素个数,取所有的像素个数的50%
 	for(int i=0;i<90;i++) // 90? 这么随便....，相当于相信在90个之内一定能取够th个
 	{
 		th -= hist[i+1];  // 梯度值为0-i的所有像素个数占 below %，i是灰度值，hist[i]是该灰度值的像素个数
@@ -112,6 +112,7 @@ void PixelSelector::makeHists(const FrameHessian* const fh)
 				int it = i+32*x; // 该格里第(j,i)像素的整个图像坐标
 				int jt = j+32*y;
 				if(it>w-2 || jt>h-2 || it<1 || jt<1) continue; //最外围一圈去掉
+				// 注意此处梯度小的放在hist0这个数组的前边，所以下边 computeHistQuantil 函数取的是像素低的那一部分
 				int g = sqrtf(map0[i+j*w]); // 梯度平方和开根号
 				if(g>48) g=48; //? 为啥是48这个数，因为一共分为了50格
 				hist0[g+1]++; // 1-49 存相应梯度个数
@@ -277,6 +278,7 @@ int PixelSelector::makeMaps(
 	{
 		int wh=wG[0]*hG[0];
 		int rn=0;
+		// randomPattern[rn] 的范围是0-255，所以假如quotia等于0.8则charTH等于204，可以去除20%的点
 		unsigned char charTH = 255*quotia;
 		for(int i=0;i<wh;i++)
 		{
@@ -298,7 +300,7 @@ int PixelSelector::makeMaps(
 	//			currentPotential,
 	//			idealPotential,
 	//			100*numHaveSub/(float)(wG[0]*hG[0]));
-	currentPotential = idealPotential; //???
+	currentPotential = idealPotential; //??? 此处的currentPotential应该没啥用了吧？
 
 	// 画出选择结果
 	if(plot)

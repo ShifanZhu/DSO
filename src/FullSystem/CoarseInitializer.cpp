@@ -896,11 +896,12 @@ void CoarseInitializer::setFirst(	CalibHessian* HCalib, FrameHessian* newFrameHe
 //[ ***step 2*** ] 针对不同层数选择大梯度像素, 第0层比较复杂1d, 2d, 4d大小block来选择3个层次的像素
 		sel.currentPotential = 3; // 设置网格大小，3*3大小格
 		int npts; // 选择的像素数目
-		// 接下来对第一帧进行像素点选取，利用for循环对每一层进行选点。变量npts表示选点数量，通过数组statusMap和statusMapB中的对应位置的值表示
+		// 接下来对第一帧进行像素点选取，利用for循环对每一层进行选点。变量 npts 表示选点数量，通过数组 statusMap 和 statusMapB 中的对应位置的值表示
 		// 该位置的像素点是否被选取。
 		if(lvl == 0) // 第0层提取特征像素 // 第0层(原始图像)
+			// makeMaps 函数先选取像素梯度较低的前百分之五十像素点，然后在select 函数中计算梯度高于该阈值2倍的像素点，相当于还是提取梯度大的呗
 			npts = sel.makeMaps(firstFrame, statusMap,densities[lvl]*w[0]*h[0],1,false,2);
-		else  // 其它层则选出goodpoints
+		else  // makePixelStatus 函数在其它层则选出goodpoints。即对于高层(0层以上)选择x y xy yx方向梯度最大的位置点，并标记在 statusMapB 变量上
 			npts = makePixelStatus(firstFrame->dIp[lvl], statusMapB, w[lvl], h[lvl], densities[lvl]*w[0]*h[0]);
 
 
