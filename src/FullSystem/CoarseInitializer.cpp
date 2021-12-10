@@ -120,21 +120,23 @@ bool CoarseInitializer::trackFrame(FrameHessian* newFrameHessian, std::vector<IO
 		thisToNext.translation().setZero();
 		for(int lvl=0;lvl<pyrLevelsUsed;lvl++)
 		{
+			// 在对每层图像的灰度梯度选点之后，将点存储到 points[lvl]，numPoints[lvl]表示lvl层选取的像素点数量。
 			int npts = numPoints[lvl];
 			Pnt* ptsl = points[lvl];
 			for(int i=0;i<npts;i++)
 			{
-				ptsl[i].iR = 1;
+				// 初始化每一个特征点的逆深度的期望值,该点在新的一帧(当前帧)上的逆深度,逆深度的Hessian, 即协方差
+				ptsl[i].iR = 1; // 每一个特征点的逆深度
 				ptsl[i].idepth_new = 1;
-				ptsl[i].lastHessian = 0;
+				ptsl[i].lastHessian = 0; // 逆深度的Hessian, 即协方差, dd*dd
 			}
 		}
 	}
 
 
   // 设置两帧之间的相对位姿变换以及由曝光时间设置两帧的光度放射变换。
-	SE3 refToNew_current = thisToNext;
-	AffLight refToNew_aff_current = thisToNext_aff;
+	SE3 refToNew_current = thisToNext; // 参考帧与当前帧之间位姿
+	AffLight refToNew_aff_current = thisToNext_aff; // 参考帧与当前帧之间光度系数
 
 	// 如果都有仿射系数, 则估计一个初值
 	if(firstFrame->ab_exposure>0 && newFrame->ab_exposure>0)
@@ -149,13 +151,13 @@ bool CoarseInitializer::trackFrame(FrameHessian* newFrameHessian, std::vector<IO
 
 //[ ***step 3*** ] 使用计算过的上一层来初始化下一层
 		// 顶层未初始化到, reset来完成
-		// 对其他层：首先propagateDown(lvl+1);，对当前层的坏点继承其parent的逆深度信息。其他与最高层一样，也是先计算resOld，然后求解迭代增量，
+		// 对其他层：首先propagateDown(lvl+1);，对当前层的坏点继承其parent的逆深度信息。其他与最高层一样，也是先计算 resOld ，然后求解迭代增量，
 		// 计算resNew,，如果energy减小则接受更新，继续迭代。如果增大则调整lambad，重新计算。
 		if(lvl<pyrLevelsUsed-1)
-			propagateDown(lvl+1);
+			propagateDown(lvl+1); // 注意此处传入的为lvl+1
 
 		// 最高层：
-		// 首先利用resetPoints(lvl);设置最高层选取的点的energy和idepth_new；pts[i].energy.setZero();pts[i].idepth_new = pts[i].idepth;
+		// 首先利用 resetPoints(lvl);设置最高层选取的点的energy和idepth_new；pts[i].energy.setZero();pts[i].idepth_new = pts[i].idepth;
 		// 并且将坏点的逆深度为当前点的neighbours的逆深度平均值。
 		// 然后利用resOld = calcResAndGS()计算当前的残差energy和优化的H矩阵和b以及Hsc，bsc。
 		// applyStep(lvl);应用计算的相关信息。
@@ -254,6 +256,7 @@ bool CoarseInitializer::trackFrame(FrameHessian* newFrameHessian, std::vector<IO
 			if(accept)
 			{
 				//? 这是啥   答：应该是位移足够大，才开始优化IR
+				// alphaK 的值为 2.5*2.5
 				if(resNew[1] == alphaK*numPoints[lvl]) // 当 alphaEnergy > alphaK*npts
 					snapped = true;
 				H = H_new;
@@ -383,6 +386,7 @@ void CoarseInitializer::debugPlot(int lvl, std::vector<IOWrap::Output3DWrapper*>
 // 推导可以参考博客直接法光度误差导数推导。https://www.cnblogs.com/JingeTU/p/8203606.html
 // calcResAndGS()函数计算了高斯牛顿方程的H，b；以及舒尔补之后Hsc，bsc。他们的构建以及推导可以参考博客DSO优化代码
 // 中的Schur Complement. https://www.cnblogs.com/JingeTU/p/8297076.html
+// refToNew 是参考帧与当前帧之间位姿， refToNew_aff 是参考帧与当前帧之间光度系数
 Vec3f CoarseInitializer::calcResAndGS(
 		int lvl, Mat88f &H_out, Vec8f &b_out,
 		Mat88f &H_out_sc, Vec8f &b_out_sc,
@@ -397,7 +401,7 @@ Vec3f CoarseInitializer::calcResAndGS(
 	//! 旋转矩阵R * 内参矩阵K_inv
 	// 首先计算RKi t r2new_aff ，将第一帧图像选取的像素点投影到当前帧，并且投影时要根据像素点属于哪层金字塔选用对应层的金字塔内参，同时会删除
 	// 投影位置不好的点。
-	Mat33f RKi = (refToNew.rotationMatrix() * Ki[lvl]).cast<float>();
+	Mat33f RKi = (refToNew.rotationMatrix() * Ki[lvl]).cast<float>(); // R*K_inv
 	Vec3f t = refToNew.translation().cast<float>(); // 平移
 	Eigen::Vector2f r2new_aff = Eigen::Vector2f(exp(refToNew_aff.a), refToNew_aff.b); // 光度参数
 
@@ -408,6 +412,7 @@ Vec3f CoarseInitializer::calcResAndGS(
 	float cyl = cy[lvl];
 
 
+	// acc9 是Hessian 矩阵， Accumulator9 类型，9维向量, 乘积获得9*9矩阵, 并做的累加器
 	Accumulator11 E;  // 1*1 的累加器
 	acc9.initialize(); // 初始值, 分配空间
 	E.initialize();
@@ -423,6 +428,7 @@ Vec3f CoarseInitializer::calcResAndGS(
 		point->maxstep = 1e10;
 		if(!point->isGood)  // 点不好
 		{
+			// energy 变量，energy[0]是残差的平方, energy[1]是正则化项(逆深度减一的平方)
 			E.updateSingle((float)(point->energy[0])); // 累加
 			point->energy_new = point->energy;
 			point->isGood_new = false;
@@ -443,11 +449,14 @@ Vec3f CoarseInitializer::calcResAndGS(
 		JbBuffer_new[i].setZero();  // 10*1 向量
 
 		// sum over all residuals.
+		// patternNum 的值是8
 		bool isGood = true;
 		float energy=0;
 		for(int idx=0;idx<patternNum;idx++)
 		{
 			// pattern的坐标偏移
+			// 此处的 patternP 为论文中使用的8点的pattern，pattern内有40个可选点, 每个点2维xy，但只用了前8个点
+			// dx dy 分别是第一个第二个 {0,-2},{-1,-1},{1,-1},{-2,0},{0,0},{2,0},{-1,1},{0,2}
 			int dx = patternP[idx][0];
 			int dy = patternP[idx][1];
 
@@ -603,6 +612,7 @@ Vec3f CoarseInitializer::calcResAndGS(
 		}
 	}
 	EAlpha.finish(); //! 只是计算位移是否足够大
+	// alphaW 的值 150*150
 	float alphaEnergy = alphaW*(EAlpha.A + refToNew.translation().squaredNorm() * npts); // 平移越大, 越容易初始化成功?
 
 	//printf("AE = %f * %f + %f\n", alphaW, EAlpha.A, refToNew.translation().squaredNorm() * npts);
@@ -759,6 +769,7 @@ void CoarseInitializer::optReg(int lvl)
 		if(nnn > 2)
 		{
 			std::nth_element(idnn,idnn+nnn/2,idnn+nnn); // 获得中位数
+			// regWeight 用来对逆深度的加权值, 0.8 // TODO 这个0.8有道理么？
 			point->iR = (1-regWeight)*point->idepth + regWeight*idnn[nnn/2];
 		}
 	}
@@ -809,7 +820,7 @@ void CoarseInitializer::propagateUp(int srcLvl)
 }
 
 //@ 使用上层信息来初始化下层
-//@ param: 当前的金字塔层+1
+//@ param: 注意传入的参数为当前的金字塔层+1
 //@ note: 没法初始化顶层值 
 void CoarseInitializer::propagateDown(int srcLvl)
 {
@@ -823,17 +834,18 @@ void CoarseInitializer::propagateDown(int srcLvl)
 	for(int i=0;i<nptst;i++)
 	{
 		Pnt* point = ptst+i;  // 遍历当前层的点
-		Pnt* parent = ptss+point->parent;  // 找到当前点的parrent
+		Pnt* parent = ptss+point->parent;  // 找到当前点的parent
 
+		// 父点不是好点(灰度梯度达不到阈值)或者逆深度的Hessian, 即协方差, dd*dd 太小，continue
 		if(!parent->isGood || parent->lastHessian < 0.1) continue;
 		if(!point->isGood)
 		{
-			// 当前点不好, 则把父点的值直接给它, 并且置位good
+			// 当前点不好, 父点好，则把父点的值直接给它, 并且置位good
 			point->iR = point->idepth = point->idepth_new = parent->iR;
 			point->isGood=true;
 			point->lastHessian=0;
 		}
-		else
+		else // 当前点好，父点也好，则通过hessian给当前点和父点加权求得新的iR
 		{
 			// 通过hessian给point和parent加权求得新的iR
 			// iR可以看做是深度的值, 使用的高斯归一化积, Hessian是信息矩阵
@@ -841,7 +853,7 @@ void CoarseInitializer::propagateDown(int srcLvl)
 			point->iR = point->idepth = point->idepth_new = newiR;
 		}
 	}
-	//? 为什么在这里又更新了iR, 没有更新 idepth 
+	//? 为什么在这里又更新了当前层的 iR, 没有更新 idepth // TODO iR idepth 到底是什么呀？
 	// 感觉更多的是考虑附近点的平滑效果
 	optReg(srcLvl-1); // 当前层
 }
@@ -932,7 +944,7 @@ void CoarseInitializer::setFirst(	CalibHessian* HCalib, FrameHessian* newFrameHe
 				pl[nl].v = y+0.1;
 				pl[nl].idepth = 1; // 该点对应参考帧的逆深度
 				pl[nl].iR = 1; // 逆深度的期望值
-				pl[nl].isGood=true; // isGood == true 说明当前点的像素梯度符合要求
+				pl[nl].isGood=true; // isGood == true 说明当前点的像素梯度达到阈值
 				pl[nl].energy.setZero(); // [0]残差的平方, [1]正则化项(逆深度减一的平方)
 				pl[nl].lastHessian=0; // 逆深度的Hessian, 即协方差, dd*dd
 				pl[nl].lastHessian_new=0; // 新一次迭代的协方差
@@ -1008,12 +1020,13 @@ void CoarseInitializer::resetPoints(int lvl)
 		pts[i].energy.setZero();
 		pts[i].idepth_new = pts[i].idepth;
 
-		// 如果是最顶层, 则使用周围点平均值来重置
+		// 如果是最顶层, 并且isGood是false(当前点的像素梯度没达到阈值)，则使用周围点平均值来重置
 		if(lvl==pyrLevelsUsed-1 && !pts[i].isGood)
 		{
 			float snd=0, sn=0;
 			for(int n = 0;n<10;n++)
 			{
+				// 如果周围邻居点的像素梯度也没有达到阈值，则continue
 				if(pts[i].neighbours[n] == -1 || !pts[pts[i].neighbours[n]].isGood) continue;
 				snd += pts[pts[i].neighbours[n]].iR;
 				sn += 1;
@@ -1021,6 +1034,7 @@ void CoarseInitializer::resetPoints(int lvl)
 
 			if(sn > 0)
 			{
+				// 将当前坏点变好，对逆深度期望值、逆深度、新逆深度取周围点的平均
 				pts[i].isGood=true;
 				pts[i].iR = pts[i].idepth = pts[i].idepth_new = snd/sn;
 			}

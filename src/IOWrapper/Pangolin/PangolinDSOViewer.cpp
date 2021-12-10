@@ -510,6 +510,8 @@ void PangolinDSOViewer::pushLiveFrame(FrameHessian* image)
 
 	boost::unique_lock<boost::mutex> lk(openImagesMutex);
 
+	// 设置显示数据，该数据乘以了0.8
+	// image->dI[i][0] 表示 idx i 位置处的像素的像素灰度值
 	for(int i=0;i<w*h;i++)
 		internalVideoImg->data[i][0] =
 		internalVideoImg->data[i][1] =
