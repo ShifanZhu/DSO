@@ -907,6 +907,7 @@ void CoarseInitializer::setFirst(	CalibHessian* HCalib, FrameHessian* newFrameHe
 
 		// 在对每层图像选点之后，将点存储起来，numPoints[lvl]表示lvl层选取的像素点数量。
 		// 如果点非空, 则释放空间, 创建新的
+		// points 是每一层上的点类, 是第一帧提取出来的
 		if(points[lvl] != 0) delete[] points[lvl];
 		points[lvl] = new Pnt[npts]; // lvl 表示金字塔层数
 
@@ -916,6 +917,7 @@ void CoarseInitializer::setFirst(	CalibHessian* HCalib, FrameHessian* newFrameHe
 		int nl = 0;
 		// 要留出pattern的空间, 2 border
 //[ ***step 3*** ] 在选出的像素中, 添加点信息
+		// patternPadding 默认是2，相对于去除图片四周像素为2的边
 		for(int y=patternPadding+1;y<hl-patternPadding-2;y++)
 		for(int x=patternPadding+1;x<wl-patternPadding-2;x++)
 		{
@@ -937,7 +939,7 @@ void CoarseInitializer::setFirst(	CalibHessian* HCalib, FrameHessian* newFrameHe
 
 				Eigen::Vector3f* cpt = firstFrame->dIp[lvl] + x + y*w[lvl]; // 该像素梯度
 				float sumGrad2=0;
-				// 计算pattern内像素梯度和
+				// 计算pattern内像素梯度和. patternNum 的值为 8
 				for(int idx=0;idx<patternNum;idx++)
 				{
 					int dx = patternP[idx][0]; // pattern 的偏移
@@ -948,6 +950,7 @@ void CoarseInitializer::setFirst(	CalibHessian* HCalib, FrameHessian* newFrameHe
 
 			// float gth = setting_outlierTH * (sqrtf(sumGrad2)+setting_outlierTHSumComponent);
 			// pl[nl].outlierTH = patternNum*gth*gth;
+				// setting_outlierTH 的值是12*12
 				//! 外点的阈值与pattern的大小有关, 一个像素是12*12
 				//? 这个阈值怎么确定的...
 				pl[nl].outlierTH = patternNum*setting_outlierTH;
@@ -959,8 +962,8 @@ void CoarseInitializer::setFirst(	CalibHessian* HCalib, FrameHessian* newFrameHe
 			}
 		}
 
-
-		numPoints[lvl]=nl; // 点的数目,  去掉了一些边界上的点
+		// 在对每层图像选点之后，将点存储起来，numPoints[lvl]表示lvl层选取的像素点数量。
+		numPoints[lvl]=nl; // 每一层点的数目,  去掉了一些边界上的点
 	}
 	delete[] statusMap;
 	delete[] statusMapB;
