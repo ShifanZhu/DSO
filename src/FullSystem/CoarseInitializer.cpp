@@ -82,10 +82,10 @@ CoarseInitializer::~CoarseInitializer()
 // CoarseInitializer::trackFrame 中将所有 points （第一帧上的点）的逆深度初始化为1。从金字塔最高层到最底层依次匹配，每一层的匹配都是高斯牛顿优化过程，
 // 在 CoarseIntializer::calcResAndGS 中计算Hessian矩阵等信息，计算出来的结果在 CoarseInitializer::trackFrame 中更新相对位姿（存储在局部变量中，
 // 现在还没有确定要不要接受这一步优化），在 CoarseInitializer::trackFrame 中调用 CoarseInitializer::doStep 中更新点的逆深度信息。
-// 随后再调用一次 CoarseIntializer::calcResAndGS，计算新的能量，如果新能量更低，那么就接受这一步优化，
+// 随后再调用一次 CoarseIntializer::calcResAndGS ，计算新的能量，如果新能量更低，那么就接受这一步优化，
 // 在 CoarseInitializer::applyStep 中生效前面保存的优化结果。
 
-// 一些加速优化过程的操作：1.每一层匹配开始的时候，调用一次 CoarseInitializer::propagateDown，将当前层所有点的逆深度设置为的它们parent（上一层）的逆深度；
+// 一些加速优化过程的操作：1.每一层匹配开始的时候，调用一次 CoarseInitializer::propagateDown ，将当前层所有点的逆深度设置为的它们parent（上一层）的逆深度；
 // 2. 在每次接受优化结果，更新每个点的逆深度，调用一次 CoarseInitializer::optReg 将所有点的 iR 设置为其 neighbour 逆深度的中位数，其实这个函数
 // 在 CoarseInitializer::propagateDown 和 CoarseInitializer::propagateUp 中都有调用，iR 变量相当于是逆深度的真值，在优化的过程中，使用这个值计算
 // 逆深度误差，效果是幅面中的逆深度平滑。
@@ -916,8 +916,9 @@ void CoarseInitializer::setFirst(	CalibHessian* HCalib, FrameHessian* newFrameHe
 		Pnt* pl = points[lvl];  // 每一层上的点 //pl为lvl层的首地址，与makeImages()函数中类似
 		int nl = 0;
 		// 要留出pattern的空间, 2 border
-//[ ***step 3*** ] 在选出的像素中, 添加点信息
-		// patternPadding 默认是2，相对于去除图片四周像素为2的边
+//[ ***step 3*** ] 在上述函数 makeMaps 和 makePixelStatus 选出的像素中, 添加点信息到 points[lvl]
+		// patternPadding 默认是2，相当于去除图片四周像素为2的边界
+		// 遍历当前层的整个像素点
 		for(int y=patternPadding+1;y<hl-patternPadding-2;y++)
 		for(int x=patternPadding+1;x<wl-patternPadding-2;x++)
 		{
@@ -929,12 +930,12 @@ void CoarseInitializer::setFirst(	CalibHessian* HCalib, FrameHessian* newFrameHe
 				// 选取的像素点相关值的初始化，nl为像素点的ID
 				pl[nl].u = x+0.1;   //? 加0.1干啥
 				pl[nl].v = y+0.1;
-				pl[nl].idepth = 1;
-				pl[nl].iR = 1;
-				pl[nl].isGood=true;
-				pl[nl].energy.setZero();
-				pl[nl].lastHessian=0;
-				pl[nl].lastHessian_new=0;
+				pl[nl].idepth = 1; // 该点对应参考帧的逆深度
+				pl[nl].iR = 1; // 逆深度的期望值
+				pl[nl].isGood=true; // isGood == true 说明当前点的像素梯度符合要求
+				pl[nl].energy.setZero(); // [0]残差的平方, [1]正则化项(逆深度减一的平方)
+				pl[nl].lastHessian=0; // 逆深度的Hessian, 即协方差, dd*dd
+				pl[nl].lastHessian_new=0; // 新一次迭代的协方差
 				pl[nl].my_type= (lvl!=0) ? 1 : statusMap[x+y*wl];
 
 				Eigen::Vector3f* cpt = firstFrame->dIp[lvl] + x + y*w[lvl]; // 该像素梯度
@@ -942,15 +943,26 @@ void CoarseInitializer::setFirst(	CalibHessian* HCalib, FrameHessian* newFrameHe
 				// 计算pattern内像素梯度和. patternNum 的值为 8
 				for(int idx=0;idx<patternNum;idx++)
 				{
+					// 此处的 patternP 为论文中使用的8点的pattern，pattern内有40个可选点, 每个点2维xy，但只用了前8个点
+					// TODO 事件相机需要测试一下不同的pattern的差别
+					// dx dy 分别是第一个第二个 {0,-2},{-1,-1},{1,-1},{-2,0},{0,0},{2,0},{-1,1},{0,2}
 					int dx = patternP[idx][0]; // pattern 的偏移
 					int dy = patternP[idx][1];
+					// cpt已经是该像素的梯度，所以加上pattern的八个点来计算，x方向直接加就行，但是y方向要乘上当前层的宽度
 					float absgrad = cpt[dx + dy*w[lvl]].tail<2>().squaredNorm();
-					sumGrad2 += absgrad;
+					sumGrad2 += absgrad; // 累加灰度值
 				}
+
+				// TODO 此处的 sumGrad2 计算之后被原作者给注释掉了，没有使用，而是直接手动设置了阈值 8个点*x方向12*y方向12，这个值对事件相机会不会太小？
+
+				// 把以下两个变量的定义复制过来方便理解
+				// /* Outlier Threshold on photometric energy */
+				// float setting_outlierTH = 12*12;					// higher -> less strict
+				// float setting_outlierTHSumComponent = 50*50; 		// higher -> less strong gradient-based reweighting .
 
 			// float gth = setting_outlierTH * (sqrtf(sumGrad2)+setting_outlierTHSumComponent);
 			// pl[nl].outlierTH = patternNum*gth*gth;
-				// setting_outlierTH 的值是12*12
+				// patternNum 的值是8，setting_outlierTH 的值是12*12，像是手动设置
 				//! 外点的阈值与pattern的大小有关, 一个像素是12*12
 				//? 这个阈值怎么确定的...
 				pl[nl].outlierTH = patternNum*setting_outlierTH;
@@ -969,6 +981,7 @@ void CoarseInitializer::setFirst(	CalibHessian* HCalib, FrameHessian* newFrameHe
 	delete[] statusMapB;
 //[ ***step 4*** ] 计算点的最近邻和父点
 	// 选点之后，利用makeNN()函数建立KDtree。
+	// TODO 没看明白
 	makeNN();
 
 	// 参数初始化
@@ -978,6 +991,7 @@ void CoarseInitializer::setFirst(	CalibHessian* HCalib, FrameHessian* newFrameHe
 	snapped = false;
 	frameID = snappedAt = 0;
 
+	// dGrads是啥？似乎代码中没有用到
 	for(int i=0;i<pyrLevelsUsed;i++)
 		dGrads[i].setZero();
 
@@ -1118,7 +1132,7 @@ void CoarseInitializer::makeK(CalibHessian* HCalib)
 void CoarseInitializer::makeNN()
 {
 	const float NNDistFactor=0.05;
-	// 第一个参数为distance, 第二个是datasetadaptor, 第三个是维数
+	// 第一个参数为 distance, 第二个是 datasetadaptor, 第三个是维数
 	typedef nanoflann::KDTreeSingleIndexAdaptor<
 			nanoflann::L2_Simple_Adaptor<float, FLANNPointcloud> ,
 			FLANNPointcloud,2> KDTree;
@@ -1127,8 +1141,10 @@ void CoarseInitializer::makeNN()
 	FLANNPointcloud pcs[PYR_LEVELS]; // 每层建立一个点云
 	KDTree* indexes[PYR_LEVELS]; // 点云建立KDtree
 	//* 每层建立一个KDTree索引二维点云
+	// 到底用了几层 pyrLevelsUsed TODO
 	for(int i=0;i<pyrLevelsUsed;i++)
 	{
+		// points 变量是每一层上的点类, 是第一帧提取出来的
 		pcs[i] = FLANNPointcloud(numPoints[i], points[i]); // 二维点点云
 		// 参数: 维度, 点数据, 叶节点中最大的点数(越大build快, query慢)
 		indexes[i] = new KDTree(2, pcs[i], nanoflann::KDTreeSingleIndexAdaptorParams(5) );
