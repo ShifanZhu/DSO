@@ -394,7 +394,10 @@ Vec3f CoarseInitializer::calcResAndGS(
 		bool plot)
 {
 	int wl = w[lvl], hl = h[lvl];
-	// 当前层图像及梯度
+	// 当前层图像及梯度,用法如下
+	// colorNew[idx][0]  表示当前层lvl，idx位置处的像素的像素灰度值;
+	// colorNew[idx][1]  表示当前层lvl，idx位置处的像素的x方向的梯度
+	// colorNew[idx][2]  表示当前层lvl，idx位置处的像素的y方向的梯度
 	Eigen::Vector3f* colorRef = firstFrame->dIp[lvl];  
 	Eigen::Vector3f* colorNew = newFrame->dIp[lvl];
 
@@ -477,12 +480,13 @@ Vec3f CoarseInitializer::calcResAndGS(
 				isGood = false;
 				break;
 			}
-			// 插值得到新图像中的 patch 像素值，(输入3维，输出3维像素值 + x方向梯度 + y方向梯度)
+			// 根据投影后的float型变量，在邻近四个角插值得到在新图像中的 patch 像素灰度值和插值后的xy方向梯度，
+			// (输入3维，输出3维像素值 + x方向梯度 + y方向梯度)
 			// 残差的构建以及energy的计算：（使用可Huber权重）
 			Vec3f hitColor = getInterpolatedElement33(colorNew, Ku, Kv, wl);
 			//Vec3f hitColor = getInterpolatedElement33BiCub(colorNew, Ku, Kv, wl);
 
-			// 参考帧上的 patch 上的像素值, 输出一维像素值
+			// 插值得到参考帧上的 patch 上的像素灰度值, 输出一维像素灰度值
 			//float rlR = colorRef[point->u+dx + (point->v+dy) * wl][0];
 			float rlR = getInterpolatedElement31(colorRef, point->u+dx, point->v+dy, wl);
 
@@ -495,7 +499,8 @@ Vec3f CoarseInitializer::calcResAndGS(
 
 			// 残差
 			float residual = hitColor[0] - r2new_aff[0] * rlR - r2new_aff[1];
-			// Huber权重
+			// setting_huberTH 为 Huber权重 Huber Threshold 值为9
+			// 当残差小于9则权重为1，当残差大于9则权重为9除以残差，相当于残差越大权重越低，
 			float hw = fabs(residual) < setting_huberTH ? 1 : setting_huberTH / fabs(residual); 
 			// huberweight * (2-huberweight) = Objective Function
 			// robust 权重和函数之间的关系
@@ -504,7 +509,7 @@ Vec3f CoarseInitializer::calcResAndGS(
 
 			// 关于优化变量的雅克比矩阵可以通过参考博客推导，然后可以构建雅克比矩阵，在构建时采用了SSE指令集加速计算。
 
-			// Pj 对 逆深度 di 求导
+			// Pj 对 逆深度 di 求导，t 是平移向量
 			//! 1/Pz * (tx - u*tz), u = px/pz
 			float dxdd = (t[0]-t[2]*u)/pt[2];
 			//! 1/Pz * (ty - v*tz), u = py/pz
@@ -515,6 +520,7 @@ Vec3f CoarseInitializer::calcResAndGS(
 			float dxInterp = hw*hitColor[1]*fxl;
 			float dyInterp = hw*hitColor[2]*fyl;
 			//* 残差对 j(新状态) 位姿求导, 
+			// 光度误差对se(3)六个量的导数
 			dp0[idx] = new_idepth*dxInterp; //! dpi/pz' * dxfx
 			dp1[idx] = new_idepth*dyInterp; //! dpi/pz' * dyfy
 			dp2[idx] = -new_idepth*(u*dxInterp + v*dyInterp); //! -dpi/pz' * (px'/pz'*dxfx + py'/pz'*dyfy)
@@ -522,9 +528,11 @@ Vec3f CoarseInitializer::calcResAndGS(
 			dp4[idx] = (1+u*u)*dxInterp + u*v*dyInterp; //! (1+px'^2/pz'^2)*dxfx + px'py'/pz'^2*dxfy
 			dp5[idx] = -v*dxInterp + u*dyInterp; //! -py'/pz'*dxfx + px'/pz'*dyfy
 			//* 残差对光度参数求导
+			// 光度误差对辐射仿射变换两个参数的导数
 			dp6[idx] = - hw*r2new_aff[0] * rlR; //! exp(aj-ai)*I(pi)
 			dp7[idx] = - hw*1;	//! 对 b 导
 			//* 残差对 i(旧状态) 逆深度求导
+			// 光度误差对逆深度的导数
 			dd[idx] = dxInterp * dxdd  + dyInterp * dydd; 	//! dxfx * 1/Pz * (tx - u*tz) +　dyfy * 1/Pz * (tx - u*tz)
 			r[idx] = hw*residual; //! 残差 res
 

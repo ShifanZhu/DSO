@@ -127,16 +127,16 @@ EIGEN_ALWAYS_INLINE float getInterpolatedElement31(const Eigen::Vector3f* const 
 {
 	int ix = (int)x;
 	int iy = (int)y;
-	float dx = x - ix;
-	float dy = y - iy;
+	float dx = x - ix; // x的小数部分
+	float dy = y - iy; // y的小数部分
 	float dxdy = dx*dy;
-	const Eigen::Vector3f* bp = mat +ix+iy*width;
+	const Eigen::Vector3f* bp = mat +ix+iy*width; // 整数部分的像素点的位置(左上角)
 
 
-	return dxdy * (*(const Eigen::Vector3f*)(bp+1+width))[0]
-	        + (dy-dxdy) * (*(const Eigen::Vector3f*)(bp+width))[0]
-	        + (dx-dxdy) * (*(const Eigen::Vector3f*)(bp+1))[0]
-			+ (1-dx-dy+dxdy) * (*(const Eigen::Vector3f*)(bp))[0];
+	return dxdy * (*(const Eigen::Vector3f*)(bp+1+width))[0] // 右下角
+	        + (dy-dxdy) * (*(const Eigen::Vector3f*)(bp+width))[0] // 左下角
+	        + (dx-dxdy) * (*(const Eigen::Vector3f*)(bp+1))[0] // 右上角
+			+ (1-dx-dy+dxdy) * (*(const Eigen::Vector3f*)(bp))[0]; // 左上角
 }
 
 EIGEN_ALWAYS_INLINE Eigen::Vector3f getInterpolatedElement13BiLin(const float* const mat, const float x, const float y, const int width)
