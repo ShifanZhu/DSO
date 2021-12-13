@@ -425,7 +425,7 @@ Vec3f CoarseInitializer::calcResAndGS(
 	Pnt* ptsl = points[lvl];
 	for(int i=0;i<npts;i++)
 	{
-
+		// point 是当前点
 		Pnt* point = ptsl+i;
 
 		point->maxstep = 1e10;
@@ -474,7 +474,7 @@ Vec3f CoarseInitializer::calcResAndGS(
 			// dpi/pz' 
 			float new_idepth = point->idepth_new/pt[2]; // 新一帧上的逆深度
 
-			// 落在边缘附近，深度小于0, 则不好
+			// 落在边缘附近，深度小于0, 不好 false，pattern8个点中的一个不好，则直接break
 			if(!(Ku > 1 && Kv > 1 && Ku < wl-2 && Kv < hl-2 && new_idepth > 0))
 			{
 				isGood = false;
@@ -490,7 +490,7 @@ Vec3f CoarseInitializer::calcResAndGS(
 			//float rlR = colorRef[point->u+dx + (point->v+dy) * wl][0];
 			float rlR = getInterpolatedElement31(colorRef, point->u+dx, point->v+dy, wl);
 
-			// 像素值有穷, good
+			// 参考帧和当前帧的像素值无穷, false，pattern8个点中的一个不好，则直接break
 			if(!std::isfinite(rlR) || !std::isfinite((float)hitColor[0]))
 			{
 				isGood = false;
@@ -509,36 +509,38 @@ Vec3f CoarseInitializer::calcResAndGS(
 
 			// 关于优化变量的雅克比矩阵可以通过参考博客推导，然后可以构建雅克比矩阵，在构建时采用了SSE指令集加速计算。
 
-			// Pj 对 逆深度 di 求导，t 是平移向量
+			// 公式32：像素坐标 Pj 对 逆深度 di 求导，t 是平移向量
 			//! 1/Pz * (tx - u*tz), u = px/pz
 			float dxdd = (t[0]-t[2]*u)/pt[2];
-			//! 1/Pz * (ty - v*tz), u = py/pz
+			//! 1/Pz * (ty - v*tz), v = py/pz
 			float dydd = (t[1]-t[2]*v)/pt[2];
 
 			if(hw < 1) hw = sqrtf(hw); //?? 为啥开根号, 答: 鲁棒核函数等价于加权最小二乘
 			//! dxfx, dyfy
-			float dxInterp = hw*hitColor[1]*fxl;
+			float dxInterp = hw*hitColor[1]*fxl; // 权重*x方向梯度*fx
 			float dyInterp = hw*hitColor[2]*fyl;
 			//* 残差对 j(新状态) 位姿求导, 
-			// 光度误差对se(3)六个量的导数
+			// 公式41：光度误差对se(3)六个量的导数
 			dp0[idx] = new_idepth*dxInterp; //! dpi/pz' * dxfx
 			dp1[idx] = new_idepth*dyInterp; //! dpi/pz' * dyfy
 			dp2[idx] = -new_idepth*(u*dxInterp + v*dyInterp); //! -dpi/pz' * (px'/pz'*dxfx + py'/pz'*dyfy)
 			dp3[idx] = -u*v*dxInterp - (1+v*v)*dyInterp; //! - px'py'/pz'^2*dxfy - (1+py'^2/pz'^2)*dyfy
 			dp4[idx] = (1+u*u)*dxInterp + u*v*dyInterp; //! (1+px'^2/pz'^2)*dxfx + px'py'/pz'^2*dxfy
 			dp5[idx] = -v*dxInterp + u*dyInterp; //! -py'/pz'*dxfx + px'/pz'*dyfy
-			//* 残差对光度参数求导
-			// 光度误差对辐射仿射变换两个参数的导数
+			//* 残差对光度参数求导，rlR是参考帧上插值得到的投影点的灰度值，r2new_aff是光度参数
+			// 公式12：光度误差对辐射仿射变换两个参数的导数
 			dp6[idx] = - hw*r2new_aff[0] * rlR; //! exp(aj-ai)*I(pi)
+			// 公式10
 			dp7[idx] = - hw*1;	//! 对 b 导
 			//* 残差对 i(旧状态) 逆深度求导
-			// 光度误差对逆深度的导数
+			// 公式14：光度误差对逆深度的导数=公式15*公式20=公式15*公式23*公式32
 			dd[idx] = dxInterp * dxdd  + dyInterp * dydd; 	//! dxfx * 1/Pz * (tx - u*tz) +　dyfy * 1/Pz * (tx - u*tz)
-			r[idx] = hw*residual; //! 残差 res
+			r[idx] = hw*residual; //! 乘了Huber权重后的残差 res
 
 			//* 像素误差对逆深度的导数，取模倒数
+			// 1 / (公式32*公式23)'平方根
 			float maxstep = 1.0f / Vec2f(dxdd*fxl, dydd*fyl).norm();  //? 为什么这么设置
-			if(maxstep < point->maxstep) point->maxstep = maxstep;
+			if(maxstep < point->maxstep) point->maxstep = maxstep; // maxstep 是逆深度增加的最大步长
 
 			// immediately compute dp*dd' and dd*dd' in JbBuffer1.
 			//* 计算Hessian的第一行(列), 及Jr 关于逆深度那一行
@@ -558,13 +560,14 @@ Vec3f CoarseInitializer::calcResAndGS(
 		// 如果点的pattern(其中一个像素)超出图像,像素值无穷, 或者残差大于阈值
 		if(!isGood || energy > point->outlierTH*20)
 		{
+			// energy[0]残差的平方, energy[1]正则化项(逆深度减一的平方)
 			E.updateSingle((float)(point->energy[0])); // 上一帧的加进来
 			point->isGood_new = false;
 			point->energy_new = point->energy; //上一次的给当前次的
 			continue;
 		}
 
-		// 内点则加进能量函数
+		// 如果是好的内点，则加进能量函数
 		// add into energy.
 		E.updateSingle(energy);
 		point->isGood_new = true;
@@ -585,6 +588,7 @@ Vec3f CoarseInitializer::calcResAndGS(
 					_mm_load_ps(((float*)(&r))+i));
 
 		// 加0, 4, 8后面多余的值, 因为SSE2是以128为单位相加, 多余的单独加
+		// 先右移2位，再左移两位相当于把后两位去掉
 		for(int i=((patternNum>>2)<<2); i < patternNum; i++)
 			acc9.updateSingle(
 					(float)dp0[i],(float)dp1[i],(float)dp2[i],(float)dp3[i],
@@ -594,6 +598,7 @@ Vec3f CoarseInitializer::calcResAndGS(
 
 	}
 
+	// E 是 Accumulator11 类型
 	E.finish();
 	acc9.finish();
 
@@ -608,7 +613,7 @@ Vec3f CoarseInitializer::calcResAndGS(
 	for(int i=0;i<npts;i++)
 	{
 		Pnt* point = ptsl+i;
-		if(!point->isGood_new) // 点不好用之前的
+		if(!point->isGood_new) // 点不好，用之前的
 		{
 			E.updateSingle((float)(point->energy[1])); //! 又是故意这样写的，没用的代码
 		}
@@ -620,7 +625,7 @@ Vec3f CoarseInitializer::calcResAndGS(
 		}
 	}
 	EAlpha.finish(); //! 只是计算位移是否足够大
-	// alphaW 的值 150*150
+	// alphaW 的值 150*150， alphaK 的值 2.5*2.5
 	float alphaEnergy = alphaW*(EAlpha.A + refToNew.translation().squaredNorm() * npts); // 平移越大, 越容易初始化成功?
 
 	//printf("AE = %f * %f + %f\n", alphaW, EAlpha.A, refToNew.translation().squaredNorm() * npts);
@@ -638,7 +643,7 @@ Vec3f CoarseInitializer::calcResAndGS(
 		alphaOpt = alphaW;
 	}
 
-
+	// Schur部分Hessian 初始化
 	acc9SC.initialize();
 	for(int i=0;i<npts;i++)
 	{
@@ -690,7 +695,7 @@ Vec3f CoarseInitializer::calcResAndGS(
 
 
 
-
+	// E.A 的值在 finish() 函数中更新
 	// 能量值, ? , 使用的点的个数
 	return Vec3f(E.A, alphaEnergy ,E.num);
 }
