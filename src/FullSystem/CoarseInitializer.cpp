@@ -159,7 +159,7 @@ bool CoarseInitializer::trackFrame(FrameHessian* newFrameHessian, std::vector<IO
 		// 最高层：
 		// 首先利用 resetPoints(lvl);设置最高层选取的点的energy和idepth_new；pts[i].energy.setZero();pts[i].idepth_new = pts[i].idepth;
 		// 并且将坏点的逆深度为当前点的neighbours的逆深度平均值。
-		// 然后利用resOld = calcResAndGS()计算当前的残差energy和优化的H矩阵和b以及Hsc，bsc。
+		// 然后利用resOld = calcResAndGS()计算当前的残差energy和优化的H矩阵和b以及Hsc，bsc。其中的"sc"是指 Schur Complement
 		// applyStep(lvl);应用计算的相关信息。
 		Mat88f H,Hsc; Vec8f b,bsc;
 		resetPoints(lvl); // 这里对顶层进行初始化!
@@ -447,7 +447,7 @@ Vec3f CoarseInitializer::calcResAndGS(
         VecNRf dp5;
         VecNRf dp6;
         VecNRf dp7;
-        VecNRf dd;
+        VecNRf dd; // 光度误差对逆深度的导数
         VecNRf r;
 		JbBuffer_new[i].setZero();  // 10*1 向量
 
@@ -532,7 +532,7 @@ Vec3f CoarseInitializer::calcResAndGS(
 			dp6[idx] = - hw*r2new_aff[0] * rlR; //! exp(aj-ai)*I(pi)
 			// 公式10
 			dp7[idx] = - hw*1;	//! 对 b 导
-			//* 残差对 i(旧状态) 逆深度求导
+			//* 残差(光度误差)对 i(旧状态) 逆深度求导
 			// 公式14：光度误差对逆深度的导数=公式15*公式20=公式15*公式23*公式32
 			dd[idx] = dxInterp * dxdd  + dyInterp * dydd; 	//! dxfx * 1/Pz * (tx - u*tz) +　dyfy * 1/Pz * (tx - u*tz)
 			r[idx] = hw*residual; //! 乘了Huber权重后的残差 res
@@ -543,35 +543,42 @@ Vec3f CoarseInitializer::calcResAndGS(
 			if(maxstep < point->maxstep) point->maxstep = maxstep; // maxstep 是逆深度增加的最大步长
 
 			// immediately compute dp*dd' and dd*dd' in JbBuffer1.
-			//* 计算Hessian的第一行(列), 及Jr 关于逆深度那一行
+			//* 计算Hessian的第一行(列), 及Jr 关于逆深度那一行，注意此处的JbBuffer_new在for循环内，所以是对8个pattern点的累加
+			// JbBuffer_new在 idx pattern 循环内，分别对每点的8个 pattern 的JTx21Jρ,JTρr21,JρJTρ进行累加.
 			// 用来计算舒尔补
-			JbBuffer_new[i][0] += dp0[idx]*dd[idx];
+			JbBuffer_new[i][0] += dp0[idx]*dd[idx]; // Hessian 矩阵右上角，左下角部分，Hpx21，光度误差对位姿的偏导*光度误差对逆深度的偏导
 			JbBuffer_new[i][1] += dp1[idx]*dd[idx];
 			JbBuffer_new[i][2] += dp2[idx]*dd[idx];
 			JbBuffer_new[i][3] += dp3[idx]*dd[idx];
 			JbBuffer_new[i][4] += dp4[idx]*dd[idx];
 			JbBuffer_new[i][5] += dp5[idx]*dd[idx];
-			JbBuffer_new[i][6] += dp6[idx]*dd[idx];
+			JbBuffer_new[i][6] += dp6[idx]*dd[idx];// Hessian 矩阵右上角，左下角部分，Hpx21，光度误差对仿射变换的偏导*光度误差对逆深度的偏导
 			JbBuffer_new[i][7] += dp7[idx]*dd[idx];
-			JbBuffer_new[i][8] += r[idx]*dd[idx];
-			JbBuffer_new[i][9] += dd[idx]*dd[idx];
+			JbBuffer_new[i][8] += r[idx]*dd[idx]; // 残差*光度误差对逆深度的偏导
+			JbBuffer_new[i][9] += dd[idx]*dd[idx]; // Hessian 矩阵左上角，Hpp，对逆深度求导的平方
 		}
 		
-		// 如果点的pattern(其中一个像素)超出图像,像素值无穷, 或者残差大于阈值
+		// 如果点的pattern(其中一个像素)超出图像,像素值无穷, 或者残差大于阈值，--> 不是好的内点，使用上一帧的
 		if(!isGood || energy > point->outlierTH*20)
 		{
-			// energy[0]残差的平方, energy[1]正则化项(逆深度减一的平方)
+			// E 的类型为Accumulator11
+			// energy[0]残差的平方, energy[1]正则化项(逆深度减一的平方)，注意此处的energy和point->energy的区别
 			E.updateSingle((float)(point->energy[0])); // 上一帧的加进来
 			point->isGood_new = false;
 			point->energy_new = point->energy; //上一次的给当前次的
 			continue;
 		}
 
+		// E 的类型为Accumulator11
 		// 如果是好的内点，则加进能量函数
 		// add into energy.
 		E.updateSingle(energy);
 		point->isGood_new = true;
 		point->energy_new[0] = energy;
+
+		// Accumulator 类型的变量的更新过程：先通过 updateSSE()函数将变量存在 内部变量 SSEData 中，然后 shiftUp(false) 函数做判断来决定
+		// 是否每1000进位，来把数据从 SSEData 放到 SSEData1k 和 SSEData1m ， 通过 updateSingle 函数来加多余的单独的，最后
+		// 调用 finish()函数，来先shiftUp(true)，来把数据放到 SSEData1m ，然后从 SSEData1m 放到 内部变量 H 
 
 		//! 因为使用128位相当于每次加4个数, 因此i+=4, 妙啊!
 		// update Hessian matrix.
@@ -613,8 +620,11 @@ Vec3f CoarseInitializer::calcResAndGS(
 	for(int i=0;i<npts;i++)
 	{
 		Pnt* point = ptsl+i;
+		// 如果点的pattern(其中一个像素)超出图像,像素值无穷, 或者残差大于阈值，--> 不是好的内点
 		if(!point->isGood_new) // 点不好，用之前的
 		{
+			// TODO 和之前的不一样的地方在于这里更新energy[0]，不过这里为啥又更新E了呢？难道不应该是更新 EAlpha 吗？
+			// energy[0]残差的平方, energy[1]正则化项(逆深度减一的平方)，注意此处的energy和point->energy的区别
 			E.updateSingle((float)(point->energy[1])); //! 又是故意这样写的，没用的代码
 		}
 		else
@@ -664,7 +674,7 @@ Vec3f CoarseInitializer::calcResAndGS(
 			JbBuffer_new[i][9] += couplingWeight;
 		}
 
-		JbBuffer_new[i][9] = 1/(1+JbBuffer_new[i][9]);  // 取逆是协方差，做权重
+		JbBuffer_new[i][9] = 1/(1+JbBuffer_new[i][9]);  // 取逆是协方差，做权重,分母里多了一个1，猜测是为了防止JbBuffer_new[i][9]太小造成系统不稳定。
 		//* 9做权重, 计算的是舒尔补项!
 		//! dp*dd*(dd^2)^-1*dd*dp
 		acc9SC.updateSingleWeighted(

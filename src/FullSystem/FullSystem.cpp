@@ -931,6 +931,7 @@ void FullSystem::addActiveFrame( ImageAndExposure* image, int id )
 		// 前面直到else if(coarseInitializer->trackFrame(fh, outputWrapper))的处理均与第2帧一样，在当前帧的时候，
 		// 对第一帧进行跟踪之后会返回ture，表示可以进行初始化操作。
 		// 前面几帧的处理都是为初始化做准备，一直到第8帧才达到满足进行初始化的条件（如果不出现意外的情况）
+		/// DSO 代码中 CoarseInitializer::trackFrame 目的是优化两帧（ref frame 和 new frame）之间的相对状态和 ref frame 中所有点的逆深度。
 		else if(coarseInitializer->trackFrame(fh, outputWrapper))	// if SNAPPED
 		{
 		//[ ***step 4.2*** ] 跟踪成功, 完成初始化

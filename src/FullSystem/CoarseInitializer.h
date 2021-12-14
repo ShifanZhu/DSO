@@ -127,7 +127,7 @@ private:
 
 	// temporary buffers for H and b.
 	Vec10f* JbBuffer;			//!< 用来计算Schur的 0-7: sum(dd * dp). 8: sum(res*dd). 9: 1/(1+sum(dd*dd))=inverse hessian entry.
-	Vec10f* JbBuffer_new;		//!< 跌待更新后新的值
+	Vec10f* JbBuffer_new;		//!< 迭代更新后新的值
 
 	//* 9维向量, 乘积获得9*9矩阵, 并做的累加器
 	Accumulator9 acc9;			//!< Hessian 矩阵

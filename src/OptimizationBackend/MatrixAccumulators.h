@@ -108,7 +108,7 @@ public:
 
   inline void finish()
   {
-	shiftUp(true); // 都进位到 m
+	shiftUp(true); // 都进位到 SSEData1m
 	A=SSEData1m[0+0] + SSEData1m[0+1] + SSEData1m[0+2] + SSEData1m[0+3];
   }
 
@@ -149,15 +149,15 @@ public:
 
 
 private:
-  EIGEN_ALIGN16 float SSEData[4*1];  // 16字节
-  EIGEN_ALIGN16 float SSEData1k[4*1];
-  EIGEN_ALIGN16 float SSEData1m[4*1];
+  EIGEN_ALIGN16 float SSEData[4*1];  // float是4个字节，所以此处可以存16个字节，所以用了Eigen的16-byte对齐
+  EIGEN_ALIGN16 float SSEData1k[4*1]; // 此处1k为 1000，即 1 kilo
+  EIGEN_ALIGN16 float SSEData1m[4*1]; // 此处1m为 1000 000， 即 1 millian
   float numIn1, numIn1k, numIn1m;
 
 	//* 进位
   void shiftUp(bool force)
   {
-		// 大于1000, 相加则进位到 k 
+	  // 大于1000, 相加则进位到 k ，相当于满一千就进位
 	  if(numIn1 > 1000 || force) //? 为啥1000次就要进位, 答: 只要不超过128位就行, 一个大概的数, 1000个32位的相加, 肯定超不了
 	  {
 		  _mm_store_ps(SSEData1k, _mm_add_ps(_mm_load_ps(SSEData),_mm_load_ps(SSEData1k)));
@@ -1023,7 +1023,7 @@ public:
 	  assert(idx==4*45);
   }
 
-// 计算一个9维向量相乘, 得到9*9矩阵
+// 计算一个9维向量相乘, 得到9*9矩阵，即真正的Hessian矩阵
   inline void updateSSE(
 		  const __m128 J0,const __m128 J1,
 		  const __m128 J2,const __m128 J3,
@@ -1031,7 +1031,8 @@ public:
 		  const __m128 J6,const __m128 J7,
 		  const __m128 J8)
   {
-		// 一共45个值
+	  // SSEData的定义：EIGEN_ALIGN16 float SSEData[4*45];
+		// 一共45个值，9+8+7+...+3+2+1 = 45
 	  float* pt=SSEData;
 		// 第一行9个值
 	  _mm_store_ps(pt, _mm_add_ps(_mm_load_ps(pt),_mm_mul_ps(J0,J0))); pt+=4;
