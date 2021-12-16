@@ -197,7 +197,7 @@ bool CoarseInitializer::trackFrame(FrameHessian* newFrameHessian, std::vector<IO
 			// 舒尔补, 边缘化掉逆深度状态
 			Hl -= Hsc*(1/(1+lambda)); // 因为dd必定是对角线上的, 所以也乘倒数
 			Vec8f bl = b - bsc*(1/(1+lambda));
-			//? wM为什么这么乘, 它对应着状态的SCALE
+			//? wM 为什么这么乘, 它对应着状态的 SCALE
 			//? (0.01f/(w[lvl]*h[lvl]))是为了减小数值, 更稳定?
 			Hl = wM * Hl * wM * (0.01f/(w[lvl]*h[lvl]));
 			bl = wM * bl * (0.01f/(w[lvl]*h[lvl]));
@@ -209,7 +209,7 @@ bool CoarseInitializer::trackFrame(FrameHessian* newFrameHessian, std::vector<IO
 				inc.head<6>() = - (wM.toDenseMatrix().topLeftCorner<6,6>() * (Hl.topLeftCorner<6,6>().ldlt().solve(bl.head<6>())));
 				inc.tail<2>().setZero();
 			}
-			// 通过上述计算的矩阵信息，进行迭代增量的求解。inc迭代增量表示相对位姿增量，相对仿射变换增量（8维）。求解增量会加入lambda，有点类似与LM的求解方法。
+			// 通过上述计算的矩阵信息，进行迭代增量的求解。 inc 迭代增量表示相对位姿增量，相对仿射变换增量（8维）。求解增量会加入lambda，有点类似与LM的求解方法。
 			else
 				inc = - (wM * (Hl.ldlt().solve(bl)));	//=-H^-1 * b. 迭代增量的求解
 
@@ -256,7 +256,7 @@ bool CoarseInitializer::trackFrame(FrameHessian* newFrameHessian, std::vector<IO
 			if(accept)
 			{
 				//? 这是啥   答：应该是位移足够大，才开始优化IR
-				// alphaK 的值为 2.5*2.5
+				// alphaK 的值为 2.5*2.5, numPoints[lvl]表示lvl层选取的像素点数量
 				if(resNew[1] == alphaK*numPoints[lvl]) // 当 alphaEnergy > alphaK*npts
 					snapped = true;
 				H = H_new;
@@ -300,19 +300,19 @@ bool CoarseInitializer::trackFrame(FrameHessian* newFrameHessian, std::vector<IO
 
 //[ ***step 6*** ] 优化后赋值位姿, 从底层计算上层点的深度
 	// 在对所有层跟踪完成之后，得到最终优化结果：
-	thisToNext = refToNew_current;
-	thisToNext_aff = refToNew_aff_current;
+	thisToNext = refToNew_current; // 参考帧与当前帧之间位姿
+	thisToNext_aff = refToNew_aff_current; // 参考帧与当前帧之间光度系数
 
 	for(int i=0;i<pyrLevelsUsed-1;i++)
 		propagateUp(i);
 
 
 
-
-	frameID++;
+	// snapped 为true的条件为：平移大于一定值，150*150/2.5/2.5算下来大概xyz要各平移0.01米，或者单独平移0.02米
+	frameID++; // 注意此处即使位移不够，帧数也会加
 	if(!snapped) snappedAt=0; 
 
-	if(snapped && snappedAt==0)
+	if(snapped && snappedAt==0) // 相当于记录上一次位移足够的frameID，然后再这个frameID的基础上加5
 		snappedAt = frameID;  // 位移足够的帧数
 
 	// 此时：frameID=1；snappedAt=1；snapped的值根据是否接受了优化而决定。
@@ -645,6 +645,7 @@ Vec3f CoarseInitializer::calcResAndGS(
 	// compute alpha opt.
 	float alphaOpt;
 	if(alphaEnergy > alphaK*npts) // 平移大于一定值，150*150/2.5/2.5算下来大概xyz要各平移0.01米，或者单独平移0.02米
+								  // 从后边可以看出，当满足这个条件时，snapped = true，trackFrame()才能返回true
 	{
 		alphaOpt = 0;
 		alphaEnergy = alphaK*npts; // 2.5*2.5*npts
@@ -713,7 +714,7 @@ Vec3f CoarseInitializer::calcResAndGS(
 
 
 
-	// E.A 的值在 finish() 函数中更新
+	// E.A 的值在 finish() 函数中更新 (只有 Accumulator11 类型的变量，在finish()函数中更新A的值
 	// 能量值, ? , 使用的点的个数
 	return Vec3f(E.A, alphaEnergy ,E.num);
 }
