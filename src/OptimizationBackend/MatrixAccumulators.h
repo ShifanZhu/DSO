@@ -1250,6 +1250,16 @@ public:
   }
 
 // 不使用对齐加速的, 带有权重的
+// J0 --> JbBuffer_new[i][0] += dp0[idx]*dd[idx]; // Hessian 矩阵右上角，左下角部分，光度误差对位姿的偏导*光度误差对逆深度的偏导, Hpx21, Jx21*Jp
+// J1 --> JbBuffer_new[i][1] += dp1[idx]*dd[idx];
+// J2 --> JbBuffer_new[i][2] += dp2[idx]*dd[idx];
+// J3 --> JbBuffer_new[i][3] += dp3[idx]*dd[idx];
+// J4 --> JbBuffer_new[i][4] += dp4[idx]*dd[idx];
+// J5 --> JbBuffer_new[i][5] += dp5[idx]*dd[idx];
+// J6 --> JbBuffer_new[i][6] += dp6[idx]*dd[idx];// Hessian 矩阵右上角，左下角部分，光度误差对仿射变换的偏导*光度误差对逆深度的偏导, Hpx21, Jx21*Jp
+// J7 --> JbBuffer_new[i][7] += dp7[idx]*dd[idx];
+// J8 --> JbBuffer_new[i][8] += r[idx]*dd[idx]; // 残差(光度误差)*光度误差对逆深度的偏导, r*Jp
+// w --> 1/JbBuffer_new[i][9] += dd[idx]*dd[idx]; // Hessian 矩阵左上角，Hpp，光度误差对逆深度求导的平方, 1/(Jp*Jp)
   inline void updateSingleWeighted(
 		  float J0, float J1,
 		  float J2, float J3,
@@ -1259,18 +1269,20 @@ public:
 		  int off=0)
   {
 
-	  float* pt=SSEData+off;
-	  *pt += J0*J0*w; pt+=4; J0*=w;
-	  *pt += J1*J0; pt+=4;
+	  float* pt=SSEData+off; 
+	  *pt += J0*J0*w; pt+=4; // J0*J0*w 对应“为了理解acc9SC那句话的下边第一个公式”。J0*J0*w --> Jx21*Jp*Jx21*Jp/(Jp*Jp)
+	  J0*=w; // J0现在变成了 Jx21*Jp/(Jp*Jp)
+	  *pt += J1*J0; pt+=4; // Jx21*Jp * Jx21*Jp/(Jp*Jp)
 	  *pt += J2*J0; pt+=4;
 	  *pt += J3*J0; pt+=4;
 	  *pt += J4*J0; pt+=4;
 	  *pt += J5*J0; pt+=4;
 	  *pt += J6*J0; pt+=4;
 	  *pt += J7*J0; pt+=4;
-	  *pt += J8*J0; pt+=4;
+	  *pt += J8*J0; pt+=4; // r*Jp * Jx21*Jp/(Jp*Jp) // 对应“为了理解acc9SC那句话的下边第二个公式”。
 
 
+	  // 第二行
 	  *pt += J1*J1*w; pt+=4; J1*=w;
 	  *pt += J2*J1; pt+=4;
 	  *pt += J3*J1; pt+=4;

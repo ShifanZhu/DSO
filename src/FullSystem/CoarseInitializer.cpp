@@ -533,7 +533,7 @@ Vec3f CoarseInitializer::calcResAndGS(
 			// 公式10
 			dp7[idx] = - hw*1;	//! 对 b 导
 			//* 残差(光度误差)对 i(旧状态) 逆深度求导
-			// 公式14：光度误差对逆深度的导数=公式15*公式20=公式15*公式23*公式32
+			// 公式14 Jp：光度误差对逆深度的导数=公式15*公式20=公式15*公式23*公式32
 			dd[idx] = dxInterp * dxdd  + dyInterp * dydd; 	//! dxfx * 1/Pz * (tx - u*tz) +　dyfy * 1/Pz * (tx - u*tz)
 			r[idx] = hw*residual; //! 乘了Huber权重后的残差 res
 
@@ -546,16 +546,16 @@ Vec3f CoarseInitializer::calcResAndGS(
 			//* 计算Hessian的第一行(列), 及Jr 关于逆深度那一行，注意此处的JbBuffer_new在for循环内，所以是对8个pattern点的累加
 			// JbBuffer_new在 idx pattern 循环内，分别对每点的8个 pattern 的JTx21Jρ,JTρr21,JρJTρ进行累加.
 			// 用来计算舒尔补
-			JbBuffer_new[i][0] += dp0[idx]*dd[idx]; // Hessian 矩阵右上角，左下角部分，Hpx21，光度误差对位姿的偏导*光度误差对逆深度的偏导
+			JbBuffer_new[i][0] += dp0[idx]*dd[idx]; // Hessian 矩阵右上角，左下角部分，光度误差对位姿的偏导*光度误差对逆深度的偏导, Hpx21, Jx21*Jp
 			JbBuffer_new[i][1] += dp1[idx]*dd[idx];
 			JbBuffer_new[i][2] += dp2[idx]*dd[idx];
 			JbBuffer_new[i][3] += dp3[idx]*dd[idx];
 			JbBuffer_new[i][4] += dp4[idx]*dd[idx];
 			JbBuffer_new[i][5] += dp5[idx]*dd[idx];
-			JbBuffer_new[i][6] += dp6[idx]*dd[idx];// Hessian 矩阵右上角，左下角部分，Hpx21，光度误差对仿射变换的偏导*光度误差对逆深度的偏导
+			JbBuffer_new[i][6] += dp6[idx]*dd[idx];// Hessian 矩阵右上角，左下角部分，光度误差对仿射变换的偏导*光度误差对逆深度的偏导, Hpx21, Jx21*Jp
 			JbBuffer_new[i][7] += dp7[idx]*dd[idx];
-			JbBuffer_new[i][8] += r[idx]*dd[idx]; // 残差*光度误差对逆深度的偏导
-			JbBuffer_new[i][9] += dd[idx]*dd[idx]; // Hessian 矩阵左上角，Hpp，对逆深度求导的平方
+			JbBuffer_new[i][8] += r[idx]*dd[idx]; // 残差(光度误差)*光度误差对逆深度的偏导, r*Jp
+			JbBuffer_new[i][9] += dd[idx]*dd[idx]; // Hessian 矩阵左上角，Hpp，光度误差对逆深度求导的平方, Jp*Jp
 		}
 		
 		// 如果点的pattern(其中一个像素)超出图像,像素值无穷, 或者残差大于阈值，--> 不是好的内点，使用上一帧的
@@ -606,6 +606,7 @@ Vec3f CoarseInitializer::calcResAndGS(
 	}
 
 	// E 是 Accumulator11 类型
+	// 调用 finish()函数，来先shiftUp(true)，来把数据放到 SSEData1m ，然后从 SSEData1m 放到 内部变量 H 
 	E.finish();
 	acc9.finish();
 
@@ -623,7 +624,7 @@ Vec3f CoarseInitializer::calcResAndGS(
 		// 如果点的pattern(其中一个像素)超出图像,像素值无穷, 或者残差大于阈值，--> 不是好的内点
 		if(!point->isGood_new) // 点不好，用之前的
 		{
-			// TODO 和之前的不一样的地方在于这里更新energy[0]，不过这里为啥又更新E了呢？难道不应该是更新 EAlpha 吗？
+			// TODO 和之前的不一样的地方在于这里更新energy[0]，不过这里为啥又更新E了呢？难道不应该是更新 EAlpha 吗？bug
 			// energy[0]残差的平方, energy[1]正则化项(逆深度减一的平方)，注意此处的energy和point->energy的区别
 			E.updateSingle((float)(point->energy[1])); //! 又是故意这样写的，没用的代码
 		}
@@ -635,7 +636,7 @@ Vec3f CoarseInitializer::calcResAndGS(
 		}
 	}
 	EAlpha.finish(); //! 只是计算位移是否足够大
-	// alphaW 的值 150*150， alphaK 的值 2.5*2.5
+	// alphaW 的值 150*150， alphaK 的值 2.5*2.5, EAlpha.A 的值0， refToNew 是参考帧与当前帧之间位姿
 	float alphaEnergy = alphaW*(EAlpha.A + refToNew.translation().squaredNorm() * npts); // 平移越大, 越容易初始化成功?
 
 	//printf("AE = %f * %f + %f\n", alphaW, EAlpha.A, refToNew.translation().squaredNorm() * npts);
@@ -643,14 +644,14 @@ Vec3f CoarseInitializer::calcResAndGS(
 
 	// compute alpha opt.
 	float alphaOpt;
-	if(alphaEnergy > alphaK*npts) // 平移大于一定值
+	if(alphaEnergy > alphaK*npts) // 平移大于一定值，150*150/2.5/2.5算下来大概xyz要各平移0.01米，或者单独平移0.02米
 	{
 		alphaOpt = 0;
-		alphaEnergy = alphaK*npts;
+		alphaEnergy = alphaK*npts; // 2.5*2.5*npts
 	}
 	else
 	{
-		alphaOpt = alphaW;
+		alphaOpt = alphaW; // 150*150
 	}
 
 	// Schur部分Hessian 初始化
@@ -661,11 +662,16 @@ Vec3f CoarseInitializer::calcResAndGS(
 		if(!point->isGood_new)
 			continue;
 
+		// JbBuffer_new[i][9] 对应 Hessian 矩阵左上角，Hpp，光度误差对逆深度求导的平方, Jp*Jp
+		// point->lastHessian_new 是新一次迭代的协方差
 		point->lastHessian_new = JbBuffer_new[i][9]; // 对逆深度 dd*dd
 
 		//? 这又是啥??? 对逆深度的值进行加权? 深度值归一化?
-		// 前面Energe加上了（d-1)*(d-1), 所以dd = 1， r += (d-1)
-		JbBuffer_new[i][8] += alphaOpt*(point->idepth_new - 1); // r*dd
+		// 前面 Energy 加上了(d-1)*(d-1), 所以 dd = 1， r += (d-1)
+		// alphaOpt 的值是 0 (位移足够大)或者 150*150 (位移不够大)
+		// 前边对 JbBuffer_new[i][8] 的赋值 += r[idx]*dd[idx]; // 残差(光度误差)*光度误差对逆深度的偏导 r*Jp
+		JbBuffer_new[i][8] += alphaOpt*(point->idepth_new - 1);
+		// JbBuffer_new[i][9] 对应 Hessian 矩阵左上角，Hpp，光度误差对逆深度求导的平方, Jp*Jp
 		JbBuffer_new[i][9] += alphaOpt; // 对逆深度导数为1 // dd*dd
 
 		if(alphaOpt==0)
@@ -674,6 +680,7 @@ Vec3f CoarseInitializer::calcResAndGS(
 			JbBuffer_new[i][9] += couplingWeight;
 		}
 
+		// 对应 1/JpJpT
 		JbBuffer_new[i][9] = 1/(1+JbBuffer_new[i][9]);  // 取逆是协方差，做权重,分母里多了一个1，猜测是为了防止JbBuffer_new[i][9]太小造成系统不稳定。
 		//* 9做权重, 计算的是舒尔补项!
 		//! dp*dd*(dd^2)^-1*dd*dp
@@ -694,6 +701,7 @@ Vec3f CoarseInitializer::calcResAndGS(
 	//??? 啥意思
 	// t*t*ntps
 	// 给 t 对应的Hessian, 对角线加上一个数, b也加上
+	// alphaOpt 的值是 0 (位移足够大)或者 150*150 (位移不够大)
 	H_out(0,0) += alphaOpt*npts;
 	H_out(1,1) += alphaOpt*npts;
 	H_out(2,2) += alphaOpt*npts;
