@@ -474,6 +474,7 @@ EFFrame* EnergyFunctional::insertFrame(FrameHessian* fh, CalibHessian* Hcalib)
 	nFrames++;
 	fh->efFrame = eff; // FrameHessian 指向能量函数帧
 
+	// CPARS是相机内参维数，等于4
 	assert(HM.cols() == 8*nFrames+CPARS-8);  // 边缘化掉一帧, 缺8个
 	// 一个帧8个参数 + 相机内参
 	bM.conservativeResize(8*nFrames+CPARS);

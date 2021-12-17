@@ -1378,6 +1378,7 @@ void FullSystem::initializeFromInitializer(FrameHessian* newFrame)
 	allKeyFramesHistory.push_back(firstFrame->shell); 	// 所有历史关键帧
 	// 第一帧加入优化：
 	// 利用ef->insertFrame(firstFrame, &Hcalib)，将第一帧加入到优化后端energyFunction
+	// Hcalib 是相机响应函数
 	ef->insertFrame(firstFrame, &Hcalib);
 	//在setPrecalcValues();会建立所有帧的目标帧，并且进行主导帧和目标帧之间相对状态的预计算，实现的函数见函数.set()，
 	// 计算的量有：leftToLeft，PRE_RTll，PRE_tTll，PRE_KRKiTll，PRE_RKiTll，PRE_KtTll，PRE_aff_mode，PRE_b0_mode。
