@@ -374,7 +374,7 @@ Eigen::Vector3i PixelSelector::select(const FrameHessian* const fh,
 	// abs=absSquaredGrad[1]; ///获取金字塔第1层，若要获取其他层，修改中括号里面即可；
 	// abs[idx]   表示图像金字塔第1层， idx 位置处的像素x,y方向的梯度平方和
 
-	// 0, 1, 2层的梯度平方和
+	// 0, 1, 2层的每一个index处的像素的梯度平方和
 	float * mapmax0 = fh->absSquaredGrad[0];
 	float * mapmax1 = fh->absSquaredGrad[1];
 	float * mapmax2 = fh->absSquaredGrad[2];
