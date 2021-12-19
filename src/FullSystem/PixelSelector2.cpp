@@ -98,7 +98,7 @@ void PixelSelector::makeHists(const FrameHessian* const fh)
 	thsStep = w32;
 
 
-	// 先把图片分成32*32个大网格，然后在每个大网格中再计算每个像素的坐标
+	// 先把图片分成32*32的大网格，然后在每个大网格中再计算每个像素的坐标
 	// TODO 对于event camera的分辨率，32是不是太大了，这个值是不是应该根据相机分辨率调整？
 	for(int y=0;y<h32;y++)
 		for(int x=0;x<w32;x++)
@@ -113,7 +113,7 @@ void PixelSelector::makeHists(const FrameHessian* const fh)
 				int jt = j+32*y;
 				if(it>w-2 || jt>h-2 || it<1 || jt<1) continue; //最外围一圈去掉
 				// 注意此处梯度小的放在hist0这个数组的前边，所以下边 computeHistQuantil 函数取的是像素低的那一部分
-				int g = sqrtf(map0[i+j*w]); // 梯度平方和开根号
+				int g = sqrtf(map0[i+j*w]); // 梯度平方和开根号 // max cout is about 70 & many 0s
 				if(g>48) g=48; //? 为啥是48这个数，因为一共分为了50格
 				hist0[g+1]++; // 1-49 存相应梯度个数
 				hist0[0]++;  // 所有的像素个数
@@ -122,13 +122,14 @@ void PixelSelector::makeHists(const FrameHessian* const fh)
 			// 得到每一block的阈值
 			// setting_minGradHistCut default = 0.5;
 			// setting_minGradHistAdd default = 7;
-			// computeHistQuantil 函数返回的是灰色梯度最小的前50%的像素的序号g，其实就是灰色梯度平方和开根号,然后
+			// computeHistQuantil 函数返回的是当前32*32的大网格的灰色梯度最小的前50%的像素的序号g，其实就是灰色梯度平方和开根号,然后
 			// 传给ths[]，用来记录当前大网格的灰度值阈值
 			// TODO 为什么返回灰色梯度最小的呢？为啥不用灰色梯度最大的呢？
-			ths[x+y*w32] = computeHistQuantil(hist0,setting_minGradHistCut) + setting_minGradHistAdd;
+			ths[x+y*w32] = computeHistQuantil(hist0,setting_minGradHistCut) + setting_minGradHistAdd; // cout is about 7
+																			// so top 50% of gray gradient is about at 7
 		}
 
-	// 使用3*3的窗口求平均值来平滑
+	// 使用3*3的窗口求平均值来平滑，平滑当前32*32的大网格和周围32*32的大网格
 	// TODO 为什么要平滑呢？对事件相机有影响吗？
 	for(int y=0;y<h32;y++)
 		for(int x=0;x<w32;x++)
@@ -152,7 +153,7 @@ void PixelSelector::makeHists(const FrameHessian* const fh)
 			if(y<h32-1) {num++; 	sum+=ths[x+(y+1)*w32];} // 下边的
 			num++; sum+=ths[x+y*w32];
 
-			thsSmoothed[x+y*w32] = (sum/num) * (sum/num);
+			thsSmoothed[x+y*w32] = (sum/num) * (sum/num); // cout is about 49
 
 		}
 
