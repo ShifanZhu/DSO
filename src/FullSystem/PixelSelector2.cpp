@@ -72,6 +72,7 @@ int computeHistQuantil(int* hist, float below)
 	int th = hist[0]*below+0.5f; // 比较低的像素个数,取所有的像素个数的50%
 	for(int i=0;i<90;i++) // 90? 这么随便....，相当于相信在90个之内一定能取够th个
 	{
+		// 注意此处如果环境当中的纹理特征比较少，比如在纯白的墙面，g==0即没有灰色梯度的情况非常常见，此时hist0[1]的值非常大
 		th -= hist[i+1];  // 梯度值为0-i的所有像素个数占 below %，i是灰度值，hist[i]是该灰度值的像素个数
 		if(th<0) return i; // 返回的是灰色梯度最小的前50%的像素的序号
 	}
@@ -115,6 +116,7 @@ void PixelSelector::makeHists(const FrameHessian* const fh)
 				// 注意此处梯度小的放在hist0这个数组的前边，所以下边 computeHistQuantil 函数取的是像素低的那一部分
 				int g = sqrtf(map0[i+j*w]); // 梯度平方和开根号 // max cout is about 70 & many 0s
 				if(g>48) g=48; //? 为啥是48这个数，因为一共分为了50格
+				// 注意此处如果环境当中的纹理特征比较少，比如在纯白的墙面，g==0即没有灰色梯度的情况非常常见，此时hist0[1]的值非常大
 				hist0[g+1]++; // 1-49 存相应梯度个数
 				hist0[0]++;  // 所有的像素个数
 				// TODO 对于event camera，此处的梯度可能都是很大的值，即可能都是48
@@ -153,7 +155,8 @@ void PixelSelector::makeHists(const FrameHessian* const fh)
 			if(y<h32-1) {num++; 	sum+=ths[x+(y+1)*w32];} // 下边的
 			num++; sum+=ths[x+y*w32];
 
-			thsSmoothed[x+y*w32] = (sum/num) * (sum/num); // cout is about 49
+			thsSmoothed[x+y*w32] = (sum/num) * (sum/num); // cout is about 49. !! Why only gray gradient larger than 49 would
+																										// be remained, so the remained potential features woule be little.
 
 		}
 
