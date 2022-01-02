@@ -92,7 +92,7 @@ public:
 	bool fixAffine;					//!< 是否优化光度参数
 	bool printDebug;
 
-	Pnt* points[PYR_LEVELS]; 		//!< 每一层上的点类, 是第一帧提取出来的
+	Pnt* points[PYR_LEVELS]; 		//!< 每一层上的点类, 是第一帧提取出来的，存储的是满足灰度梯度阈值的点
 	int numPoints[PYR_LEVELS];  	//!< 每一层的点数目
 	AffLight thisToNext_aff;		//!< 参考帧与当前帧之间光度系数
 	SE3 thisToNext;					//!< 参考帧与当前帧之间位姿

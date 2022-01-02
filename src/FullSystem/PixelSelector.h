@@ -68,7 +68,7 @@ inline int gridMaxSelection(Eigen::Vector3f* grads, bool* map_out, int w, int h,
 					int idx = dx+dy*w;
 					Eigen::Vector3f g=grads0[idx]; // 遍历网格内的每一个像素
 					float sqgd = g.tail<2>().squaredNorm(); // 梯度平方和
-					// minUseGrad_pixsel 的值为常数10， THFac 的默认值为1，所以TH为7.5
+					// minUseGrad_pixsel 的值为常数10， THFac 的默认值为1(如果点数不够会变成0.5)，所以TH为7.5
 					float TH = THFac*minUseGrad_pixsel * (0.75f);  //阈值, 为什么都乘0.75 ? downweight
 
 					// 在当前pot内寻找 x y xy yx 方向的最大梯度

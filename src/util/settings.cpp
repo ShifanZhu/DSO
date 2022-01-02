@@ -143,7 +143,8 @@ float setting_coarseCutoffTH = 20;
 
 // parameters controlling pixel selection
 float setting_minGradHistCut = 0.5;
-float setting_minGradHistAdd = 7;
+// float setting_minGradHistAdd = 7;
+float setting_minGradHistAdd = 1; // for event camera there are so many pixels that are 0 gradient so set this to 1
 float setting_gradDownweightPerLevel = 0.75;
 bool  setting_selectDirectionDistribution = true;
 

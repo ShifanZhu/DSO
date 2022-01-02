@@ -120,7 +120,8 @@ bool CoarseInitializer::trackFrame(FrameHessian* newFrameHessian, std::vector<IO
 		thisToNext.translation().setZero();
 		for(int lvl=0;lvl<pyrLevelsUsed;lvl++)
 		{
-			// 在对每层图像的灰度梯度选点之后，将点存储到 points[lvl]，numPoints[lvl]表示lvl层选取的像素点数量。
+			// points 存储每一层上的点类, 是第一帧提取出来的，存储的是满足灰度梯度阈值的点
+			// 在对每层图像的灰度梯度选点之后，将点存储到 points[lvl]，numPoints[lvl]表示lvl层选取的符合像素梯度阈值的像素点数量。
 			int npts = numPoints[lvl];
 			Pnt* ptsl = points[lvl];
 			for(int i=0;i<npts;i++)
@@ -147,7 +148,7 @@ bool CoarseInitializer::trackFrame(FrameHessian* newFrameHessian, std::vector<IO
 	Vec3f latestRes = Vec3f::Zero();
 	// 从顶层开始估计
 	for(int lvl=pyrLevelsUsed-1; lvl>=0; lvl--)
-	{ 
+	{
 
 //[ ***step 3*** ] 使用计算过的上一层来初始化下一层
 		// 顶层未初始化到, reset来完成
@@ -405,6 +406,7 @@ Vec3f CoarseInitializer::calcResAndGS(
 	// 首先计算RKi t r2new_aff ，将第一帧图像选取的像素点投影到当前帧，并且投影时要根据像素点属于哪层金字塔选用对应层的金字塔内参，同时会删除
 	// 投影位置不好的点。
 	Mat33f RKi = (refToNew.rotationMatrix() * Ki[lvl]).cast<float>(); // R*K_inv
+	std::cout << "refToNew matrix = " << std::endl << refToNew.rotationMatrix() << std::endl;
 	Vec3f t = refToNew.translation().cast<float>(); // 平移
 	Eigen::Vector2f r2new_aff = Eigen::Vector2f(exp(refToNew_aff.a), refToNew_aff.b); // 光度参数
 
@@ -422,7 +424,7 @@ Vec3f CoarseInitializer::calcResAndGS(
 
 
 	int npts = numPoints[lvl];
-	Pnt* ptsl = points[lvl];
+	Pnt* ptsl = points[lvl]; // points存储每一层上的点类, 是第一帧提取出来的，存储的是满足灰度梯度阈值的点
 	for(int i=0;i<npts;i++)
 	{
 		// point 是当前点
@@ -487,6 +489,9 @@ Vec3f CoarseInitializer::calcResAndGS(
 			//Vec3f hitColor = getInterpolatedElement33BiCub(colorNew, Ku, Kv, wl);
 
 			// 插值得到参考帧上的 patch 上的像素灰度值, 输出一维像素灰度值
+			// colorRef[idx][0]  表示当前层lvl，idx位置处的像素的像素灰度值;
+			// colorRef[idx][1]  表示当前层lvl，idx位置处的像素的x方向的梯度
+			// colorRef[idx][2]  表示当前层lvl，idx位置处的像素的y方向的梯度
 			//float rlR = colorRef[point->u+dx + (point->v+dy) * wl][0];
 			float rlR = getInterpolatedElement31(colorRef, point->u+dx, point->v+dy, wl);
 
@@ -527,7 +532,7 @@ Vec3f CoarseInitializer::calcResAndGS(
 			dp3[idx] = -u*v*dxInterp - (1+v*v)*dyInterp; //! - px'py'/pz'^2*dxfy - (1+py'^2/pz'^2)*dyfy
 			dp4[idx] = (1+u*u)*dxInterp + u*v*dyInterp; //! (1+px'^2/pz'^2)*dxfx + px'py'/pz'^2*dxfy
 			dp5[idx] = -v*dxInterp + u*dyInterp; //! -py'/pz'*dxfx + px'/pz'*dyfy
-			//* 残差对光度参数求导，rlR是参考帧上插值得到的投影点的灰度值，r2new_aff是光度参数
+			//* 残差对光度参数求导， rlR 是参考帧上插值得到的投影点的灰度值，r2new_aff是光度参数
 			// 公式12：光度误差对辐射仿射变换两个参数的导数
 			dp6[idx] = - hw*r2new_aff[0] * rlR; //! exp(aj-ai)*I(pi)
 			// 公式10
@@ -866,8 +871,10 @@ void CoarseInitializer::propagateDown(int srcLvl)
 	for(int i=0;i<nptst;i++)
 	{
 		Pnt* point = ptst+i;  // 遍历当前层的点
+		// point->parent 表示 idx (x+y*w) of closest point one pyramid level above.
 		Pnt* parent = ptss+point->parent;  // 找到当前点的parent
 
+		// isGood == true 说明当前点的像素梯度达到阈值
 		// 父点不是好点(灰度梯度达不到阈值)或者逆深度的Hessian, 即协方差, dd*dd 太小，continue
 		if(!parent->isGood || parent->lastHessian < 0.1) continue;
 		if(!point->isGood)
@@ -885,6 +892,7 @@ void CoarseInitializer::propagateDown(int srcLvl)
 			point->iR = point->idepth = point->idepth_new = newiR;
 		}
 	}
+	//optReg 函数使用最近点来更新每个点的iR, smooth的感觉
 	//? 为什么在这里又更新了当前层的 iR, 没有更新 idepth // TODO iR idepth 到底是什么呀？
 	// 感觉更多的是考虑附近点的平滑效果
 	optReg(srcLvl-1); // 当前层
@@ -951,7 +959,7 @@ void CoarseInitializer::setFirst(	CalibHessian* HCalib, FrameHessian* newFrameHe
 
 		// 在对每层图像选点之后，将点存储起来，numPoints[lvl]表示lvl层选取的像素点数量。
 		// 如果点非空, 则释放空间, 创建新的
-		// points 是每一层上的点类, 是第一帧提取出来的
+		// points 是每一层上的点类, 是第一帧提取出来的，存储的是满足灰度梯度阈值的点
 		if(points[lvl] != 0) delete[] points[lvl];
 		points[lvl] = new Pnt[npts]; // lvl 表示金字塔层数
 
@@ -1019,7 +1027,7 @@ void CoarseInitializer::setFirst(	CalibHessian* HCalib, FrameHessian* newFrameHe
 		}
 
 		// 在对每层图像选点之后，将点存储起来，numPoints[lvl]表示lvl层选取的像素点数量。
-		numPoints[lvl]=nl; // 每一层点的数目,  去掉了一些边界上的点
+		numPoints[lvl]=nl; // 每一层选出来的符合梯度阈值的数目,  去掉了一些边界上的点
 	}
 	delete[] statusMap;
 	delete[] statusMapB;
@@ -1029,7 +1037,7 @@ void CoarseInitializer::setFirst(	CalibHessian* HCalib, FrameHessian* newFrameHe
 	makeNN();
 
 	// 参数初始化
-	// 设置一些变量的值，thisToNext表示当前帧到下一帧的位姿变换，snapped frameID snappedAt这三个变量
+	// 设置一些变量的值， thisToNext 表示当前帧到下一帧的位姿变换， snapped frameID snappedAt 这三个变量
 	// 在后续判断是否跟踪了足够多的图像帧能够初始化时用到。
 	thisToNext=SE3();
 	snapped = false;
@@ -1060,7 +1068,7 @@ void CoarseInitializer::resetPoints(int lvl)
 			{
 				// 如果周围邻居点的像素梯度也没有达到阈值，则continue
 				if(pts[i].neighbours[n] == -1 || !pts[pts[i].neighbours[n]].isGood) continue;
-				snd += pts[pts[i].neighbours[n]].iR;
+				snd += pts[pts[i].neighbours[n]].iR; // snd --> summary of neighbours' depth
 				sn += 1;
 			}
 
@@ -1190,7 +1198,7 @@ void CoarseInitializer::makeNN()
 	// 到底用了几层 pyrLevelsUsed TODO
 	for(int i=0;i<pyrLevelsUsed;i++)
 	{
-		// points 变量是每一层上的点类, 是第一帧提取出来的
+		// points 是每一层上的点类, 是第一帧提取出来的，存储的是满足灰度梯度阈值的点
 		pcs[i] = FLANNPointcloud(numPoints[i], points[i]); // 二维点点云
 		// 参数: 维度, 点数据, 叶节点中最大的点数(越大build快, query慢)
 		indexes[i] = new KDTree(2, pcs[i], nanoflann::KDTreeSingleIndexAdaptorParams(5) );

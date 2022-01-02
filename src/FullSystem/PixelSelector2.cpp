@@ -70,7 +70,8 @@ PixelSelector::~PixelSelector()
 int computeHistQuantil(int* hist, float below)
 {
 	int th = hist[0]*below+0.5f; // 比较低的像素个数,取所有的像素个数的50%
-	for(int i=0;i<90;i++) // 90? 这么随便....，相当于相信在90个之内一定能取够th个
+	// 对于事件相机，去除零像素梯度，因为零像素梯度的点太多了
+	for(int i=1;i<48;i++) // 90? 这么随便....，相当于相信在90个之内一定能取够th个，改为48，因为一共分配了50个
 	{
 		// 注意此处如果环境当中的纹理特征比较少，比如在纯白的墙面，g==0即没有灰色梯度的情况非常常见，此时hist0[1]的值非常大
 		th -= hist[i+1];  // 梯度值为0-i的所有像素个数占 below %，i是灰度值，hist[i]是该灰度值的像素个数
@@ -104,7 +105,7 @@ void PixelSelector::makeHists(const FrameHessian* const fh)
 	for(int y=0;y<h32;y++)
 		for(int x=0;x<w32;x++)
 		{
-			float* map0 = mapmax0+32*x+32*y*w; // y行x列的格
+			float* map0 = mapmax0+32*x+32*y*w; // y行x列的格，此处的xy为大网格的index
 			int* hist0 = gradHist;// + 50*(x+y*w32);
 			memset(hist0,0,sizeof(int)*50); // 分成50格
 
@@ -115,6 +116,7 @@ void PixelSelector::makeHists(const FrameHessian* const fh)
 				if(it>w-2 || jt>h-2 || it<1 || jt<1) continue; //最外围一圈去掉
 				// 注意此处梯度小的放在hist0这个数组的前边，所以下边 computeHistQuantil 函数取的是像素低的那一部分
 				int g = sqrtf(map0[i+j*w]); // 梯度平方和开根号 // max cout is about 70 & many 0s
+				if(g==0) continue;
 				if(g>48) g=48; //? 为啥是48这个数，因为一共分为了50格
 				// 注意此处如果环境当中的纹理特征比较少，比如在纯白的墙面，g==0即没有灰色梯度的情况非常常见，此时hist0[1]的值非常大
 				hist0[g+1]++; // 1-49 存相应梯度个数
@@ -126,13 +128,17 @@ void PixelSelector::makeHists(const FrameHessian* const fh)
 			// setting_minGradHistAdd default = 7;
 			// computeHistQuantil 函数返回的是当前32*32的大网格的灰色梯度最小的前50%的像素的序号g，其实就是灰色梯度平方和开根号,然后
 			// 传给ths[]，用来记录当前大网格的灰度值阈值
-			// TODO 为什么返回灰色梯度最小的呢？为啥不用灰色梯度最大的呢？
+			// TODO 为什么返回灰色梯度最小的呢？为啥不用灰色梯度最大的呢？因为后边取大于此阈值的点
 			ths[x+y*w32] = computeHistQuantil(hist0,setting_minGradHistCut) + setting_minGradHistAdd; // cout is about 7
-																			// so top 50% of gray gradient is about at 7
+					// so top 50% of gray gradient is about at 7 (because of default of setting_minGradHistAdd is 7)
+					// for event camera there are so many pixels that are 0 gradient so set setting_minGradHistAdd to 1
+			std::cout << "ths[x+y*w32] = " << ths[x+y*w32] << std::endl;
 		}
 
-	// 使用3*3的窗口求平均值来平滑，平滑当前32*32的大网格和周围32*32的大网格
+	// 使用3*3的窗口求平均值来平滑，平滑当前32*32的大网格和周围3*3个32*32的大网格
 	// TODO 为什么要平滑呢？对事件相机有影响吗？
+	// w32 的值为 图像宽度/32
+	// 此处的 x y 的值为大网格的坐标
 	for(int y=0;y<h32;y++)
 		for(int x=0;x<w32;x++)
 		{
@@ -157,7 +163,7 @@ void PixelSelector::makeHists(const FrameHessian* const fh)
 
 			thsSmoothed[x+y*w32] = (sum/num) * (sum/num); // cout is about 49. !! Why only gray gradient larger than 49 would
 																										// be remained, so the remained potential features woule be little.
-
+			std::cout << "thsSmoothed[x+y*w32] = " << thsSmoothed[x+y*w32] << std::endl;
 		}
 
 
