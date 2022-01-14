@@ -87,7 +87,7 @@ float setting_thOptIterations=1.2; // factor on break threshold for GN iteration
 
 
 /* Outlier Threshold on photometric energy */
-float setting_outlierTH = 12*12;					// higher -> less strict
+float setting_outlierTH = 102*102;					// higher -> less strict
 float setting_outlierTHSumComponent = 50*50; 		// higher -> less strong gradient-based reweighting .
 
 
@@ -124,7 +124,7 @@ int setting_gammaWeightsPixelSelect = 1; // 1 = use original intensity for pixel
 
 
 
-float setting_huberTH = 9; // Huber Threshold
+float setting_huberTH = 9; // Huber Threshold   odified from 9 to 90
 
 
 

@@ -331,7 +331,7 @@ Vec4 FullSystem::trackNewCoarse(FrameHessian* fh)
 		// just try a TON of different initializations (all rotations). In the end,
 		// if they don't work they will only be tried on the coarsest level, which is super fast anyway.
 		// also, if tracking rails here we loose, so we really, really want to avoid that.
-		for(float rotDelta=0.02; rotDelta < 0.05; rotDelta++)
+		for(float rotDelta=0.02; rotDelta < 0.05; rotDelta++) // TODO 此处的++要改
 		{
 			lastF_2_fh_tries.push_back(fh_2_slast.inverse() * lastF_2_slast * SE3(Sophus::Quaterniond(1,rotDelta,0,0), Vec3(0,0,0)));			// assume constant motion.
 			lastF_2_fh_tries.push_back(fh_2_slast.inverse() * lastF_2_slast * SE3(Sophus::Quaterniond(1,0,rotDelta,0), Vec3(0,0,0)));			// assume constant motion.
@@ -1359,9 +1359,9 @@ void FullSystem::makeKeyFrame( FrameHessian* fh)
 }
 
 //@ 从初始化中提取出信息, 用于跟踪.
-// FullSystem::initializeFromInitializer，第一帧是 firstFrame，第七帧是 newFrame，从 CoarseInitializer 中抽取出 2000 个点
+// FullSystem::initializeFromInitializer，第一帧是 firstFrame ，第七帧是 newFrame ，从 CoarseInitializer 中抽取出 2000 个点
 // 作为 firstFrame 的 pointHessians。设置的逆深度有 CoarseIntiailzier::trackFrame 中计算出来的 iR 和 idepth，而这里
-// 使用了 rescaleFactor 这个局部变量，保证所有 iR 的均值为 1。iR 设置的是 PointHessian 的 idepth，
+// 使用了 rescaleFactor 这个局部变量，保证所有 iR 的均值为 1。 iR 设置的是 PointHessian 的 idepth，
 // 而 idepth 设置的是 PointHessian 的 idepth_zero(缩放了scale倍的固定线性化点逆深度)，idepth_zero 相当于估计的真值，用于计算误差。
 void FullSystem::initializeFromInitializer(FrameHessian* newFrame)
 {

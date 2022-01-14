@@ -223,9 +223,11 @@ bool CoarseInitializer::trackFrame(FrameHessian* newFrameHessian, std::vector<IO
 
 			// 利用doStep(lvl, lambda, inc);计算选取的像素点逆深度增量。
 			// 再计算并更新了所有增量之后，重新计算残差以及优化用到的矩阵信息。其中calcEC(lvl)计算像素点的逆深度energy。
+			// regEnergy[0]存的是老点的(逆深度-逆深度均值)的平方， regEnergy[1]存的是新点的(逆深度-逆深度均值)的平方， regEnergy[2]存储累加的次数
 
 //[ ***step 5.4*** ] 计算更新后的能量并且与旧的对比判断是否accept
 			Mat88f H_new, Hsc_new; Vec8f b_new, bsc_new;
+			// resNew[0] 存储的能量值(也就是pattern点的残差和，残差由当前帧和参考帧的灰度值相减得到)； resNew[1] 存储平移的能量值，相当于平移越大, 越容易初始化成功； resNew[2] 存储累加的点的个数
 			Vec3f resNew = calcResAndGS(lvl, H_new, b_new, Hsc_new, bsc_new, refToNew_new, refToNew_aff_new, false);
 			Vec3f regEnergy = calcEC(lvl);
 
@@ -298,12 +300,16 @@ bool CoarseInitializer::trackFrame(FrameHessian* newFrameHessian, std::vector<IO
 
 	}
 
-
+	std::cout << "thisToNext.log =  " <<std::endl<< thisToNext.log() << std::endl;
+	std::cout << "refToNew_current.log =  " <<std::endl<< refToNew_current.log() << std::endl;
+	std::cout << "thisToNext_aff =  " <<std::endl<< thisToNext_aff.vec() << std::endl; // 0 0
+	std::cout << "refToNew_aff_current =  " <<std::endl<< refToNew_aff_current.vec() << std::endl; // 0 0
 //[ ***step 6*** ] 优化后赋值位姿, 从底层计算上层点的深度
-	// 在对所有层跟踪完成之后，得到最终优化结果：
+	// 在对所有层跟踪完成之后，得到最终优化结果： TODO 输出看一下为什么失败
 	thisToNext = refToNew_current; // 参考帧与当前帧之间位姿
 	thisToNext_aff = refToNew_aff_current; // 参考帧与当前帧之间光度系数
 
+	//* 使用归一化积来更新高层逆深度值
 	for(int i=0;i<pyrLevelsUsed-1;i++)
 		propagateUp(i);
 
@@ -502,14 +508,14 @@ Vec3f CoarseInitializer::calcResAndGS(
 				break;
 			}
 
-			// 残差
+			// 残差! 投影后的像素灰度值 减去 参考帧的像素灰度值，考虑了光度参数 TODO event camera
 			float residual = hitColor[0] - r2new_aff[0] * rlR - r2new_aff[1];
 			// setting_huberTH 为 Huber权重 Huber Threshold 值为9
-			// 当残差小于9则权重为1，当残差大于9则权重为9除以残差，相当于残差越大权重越低，
+			// 当残差小于9则权重为1，当残差大于9则权重为9除以残差，相当于残差越大权重越低， TODO event camera
 			float hw = fabs(residual) < setting_huberTH ? 1 : setting_huberTH / fabs(residual); 
 			// huberweight * (2-huberweight) = Objective Function
 			// robust 权重和函数之间的关系
-			energy += hw *residual*residual*(2-hw);
+			energy += hw *residual*residual*(2-hw); // 累加pattern内8个点的残差作为energy
 
 
 			// 关于优化变量的雅克比矩阵可以通过参考博客推导，然后可以构建雅克比矩阵，在构建时采用了SSE指令集加速计算。
@@ -720,7 +726,7 @@ Vec3f CoarseInitializer::calcResAndGS(
 
 
 	// E.A 的值在 finish() 函数中更新 (只有 Accumulator11 类型的变量，在finish()函数中更新A的值
-	// 能量值, ? , 使用的点的个数
+	// E.A 存储的能量值(也就是pattern点的残差和，残差由当前帧和参考帧的灰度值相减得到)； alphaEnergy 存储平移的能量值，相当于平移越大, 越容易初始化成功； E.num存储累加的点的个数
 	return Vec3f(E.A, alphaEnergy ,E.num);
 }
 
@@ -767,6 +773,8 @@ Vec3f CoarseInitializer::calcEC(int lvl)
 	E.finish();
 
 	//printf("ER: %f %f %f!\n", couplingWeight*E.A1m[0], couplingWeight*E.A1m[1], (float)E.num.numIn1m);
+	// couplingWeight 的值为1
+	// A1m[0]存的是老点的(逆深度-逆深度均值)的平方，A1m[1]存的是新点的(逆深度-逆深度均值)的平方，num存储累加的次数
 	return Vec3f(couplingWeight*E.A1m[0], couplingWeight*E.A1m[1], E.num);
 }
 
@@ -815,11 +823,14 @@ void CoarseInitializer::optReg(int lvl)
 
 
 //* 使用归一化积来更新高层逆深度值
+//@ param: 注意传入的参数为当前的金字塔层，并没有像propagateDown中那样+1
+// 参考 propagateDown 函数的注释
 void CoarseInitializer::propagateUp(int srcLvl)
 {
 	assert(srcLvl+1<pyrLevelsUsed);
 	// set idepth of target
 
+	// 参考 propagateDown 函数的注释
 	int nptss= numPoints[srcLvl];
 	int nptst= numPoints[srcLvl+1];
 	Pnt* ptss = points[srcLvl];
@@ -832,7 +843,7 @@ void CoarseInitializer::propagateUp(int srcLvl)
 		parent->iR=0;
 		parent->iRSumNum=0;
 	}
-	//* 更新在上一层的parent
+	// 更新当前层
 	for(int i=0;i<nptss;i++)
 	{
 		Pnt* point = ptss+i;
@@ -843,6 +854,7 @@ void CoarseInitializer::propagateUp(int srcLvl)
 		parent->iRSumNum += point->lastHessian;  //! 新的信息矩阵 ∑ sigma
 	}
 
+	//* 更新在上一层的parent
 	for(int i=0;i<nptst;i++)
 	{
 		Pnt* parent = ptst+i;
@@ -864,6 +876,8 @@ void CoarseInitializer::propagateDown(int srcLvl)
 	assert(srcLvl>0);
 	// set idepth of target
 
+	// points 存储每一层上的点类, 是第一帧提取出来的，存储的是满足灰度梯度阈值的点
+	// 在对每层图像的灰度梯度选点之后，将点存储到 points[lvl]，numPoints[lvl]表示lvl层选取的符合像素梯度阈值的像素点数量。
 	int nptst= numPoints[srcLvl-1]; // 当前层的点数目
 	Pnt* ptss = points[srcLvl];  // 当前层+1, 上一层的点集
 	Pnt* ptst = points[srcLvl-1]; // 当前层点集
@@ -1109,7 +1123,7 @@ void CoarseInitializer::doStep(int lvl, float lambda, Vec8f inc)
 		// 更新得到新的逆深度
 		float newIdepth = pts[i].idepth + step;
 		if(newIdepth < 1e-3 ) newIdepth = 1e-3;
-		if(newIdepth > 50) newIdepth = 50;
+		if(newIdepth > 50) newIdepth = 50; // max depth is 50?
 		pts[i].idepth_new = newIdepth;
 	}
 
