@@ -1000,11 +1000,10 @@ void CoarseInitializer::setFirst(	CalibHessian* HCalib, FrameHessian* newFrameHe
 					// dx dy 分别是第一个第二个 {0,-2},{-1,-1},{1,-1},{-2,0},{0,0},{2,0},{-1,1},{0,2}
 					int dx = patternP[idx][0]; // pattern 的偏移
 					int dy = patternP[idx][1];
-					// cpt已经是该像素的梯度，所以加上pattern的八个点来计算，x方向直接加就行，但是y方向要乘上当前层的宽度
+					// cpt已经是该点的像素的梯度，所以加上pattern的八个点来计算，x方向直接加就行，但是y方向要乘上当前层的宽度
 					float absgrad = cpt[dx + dy*w[lvl]].tail<2>().squaredNorm();
 					sumGrad2 += absgrad; // 累加灰度值
 				}
-
 				// TODO 此处的 sumGrad2 计算之后被原作者给注释掉了，没有使用，而是直接手动设置了阈值 8个点*x方向12*y方向12，这个值对事件相机会不会太小？
 
 				// 把以下两个变量的定义复制过来方便理解

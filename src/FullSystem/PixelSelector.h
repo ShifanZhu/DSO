@@ -152,7 +152,7 @@ inline int gridMaxSelection(Eigen::Vector3f* grads, bool* map_out, int w, int h,
 					int idx = dx+dy*w;
 					Eigen::Vector3f g=grads0[idx];
 					float sqgd = g.tail<2>().squaredNorm();
-					float TH = THFac*minUseGrad_pixsel * (0.75f);
+					float TH = THFac*minUseGrad_pixsel * (0.75f); // minUseGrad_pixsel 是个固定值10， THFac 是0.5或1
 
 					if(sqgd > TH*TH)
 					{
