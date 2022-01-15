@@ -88,6 +88,7 @@ public:
 		at(u+0.5f,v+0.5f) = val;
 	}
 
+	// Set the right, down, and rightdown pixels the same value
 	inline void setPixel4(const float &u, const float &v, T val)
 	{
 		at(u+1.0f,v+1.0f) = val;

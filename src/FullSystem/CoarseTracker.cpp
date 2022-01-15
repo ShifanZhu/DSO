@@ -319,6 +319,17 @@ void CoarseTracker::calcGSSSE(int lvl, Mat88 &H_out, Vec8 &b_out, const SE3 &ref
 	__m128 minusOne = _mm_set1_ps(-1);
 	__m128 zero = _mm_set1_ps(0);
 
+	// buf_warped 的含义
+	// buf_warped_idepth[numTermsInWarped] = new_idepth; 逆深度
+	// buf_warped_u[numTermsInWarped] = u; 像素坐标 x
+	// buf_warped_v[numTermsInWarped] = v; 像素坐标 y
+	// buf_warped_dx[numTermsInWarped] = hitColor[1]; x方向梯度
+	// buf_warped_dy[numTermsInWarped] = hitColor[2]; y方向梯度
+	// buf_warped_residual[numTermsInWarped] = residual; 残差
+	// buf_warped_weight[numTermsInWarped] = hw; // 权重，梯度越大权重越小
+	// buf_warped_refColor[numTermsInWarped] = lpc_color[i];
+
+	// buf_warped_n 是 numTermsInWarped ，放进去的个数
 	int n = buf_warped_n;
 	assert(n%4==0);
 	for(int i=0;i<n;i+=4)
@@ -351,7 +362,7 @@ void CoarseTracker::calcGSSSE(int lvl, Mat88 &H_out, Vec8 &b_out, const SE3 &ref
 	H_out = acc.H.topLeftCorner<8,8>().cast<double>() * (1.0f/n);
 	b_out = acc.H.topRightCorner<8,1>().cast<double>() * (1.0f/n);
 
-	H_out.block<8,3>(0,0) *= SCALE_XI_ROT;   // bug : 平移旋转顺序错了
+	H_out.block<8,3>(0,0) *= SCALE_XI_ROT;   // bug : 平移旋转顺序错了。似乎并没有，double check 一下
 	H_out.block<8,3>(0,3) *= SCALE_XI_TRANS;
 	H_out.block<8,1>(0,6) *= SCALE_A;
 	H_out.block<8,1>(0,7) *= SCALE_B;
@@ -384,7 +395,7 @@ Vec6 CoarseTracker::calcRes(int lvl, const SE3 &refToNew, AffLight aff_g2l, floa
 	float cxl = cx[lvl];
 	float cyl = cy[lvl];
 
-
+	// RKi 和 Ki 之间相差一个 refToNew 旋转矩阵
 	Mat33f RKi = (refToNew.rotationMatrix().cast<float>() * Ki[lvl]);
 	Vec3f t = (refToNew.translation()).cast<float>();
 	// 这个函数会把前后两帧的光度参数变成两个值
@@ -431,10 +442,11 @@ Vec6 CoarseTracker::calcRes(int lvl, const SE3 &refToNew, AffLight aff_g2l, floa
 		if(lvl==0 && i%32==0)  //* 第0层 每隔32个点
 		{
 			//* 只正的平移 translation only (positive)
+			// RKi 和 Ki 之间相差一个 refToNew 旋转矩阵
 			Vec3f ptT = Ki[lvl] * Vec3f(x, y, 1) + t*id;
-			float uT = ptT[0] / ptT[2];
+			float uT = ptT[0] / ptT[2]; // 归一化坐标
 			float vT = ptT[1] / ptT[2];
-			float KuT = fxl * uT + cxl;
+			float KuT = fxl * uT + cxl; // 像素坐标
 			float KvT = fyl * vT + cyl;
 
 			//* 只负的平移 translation only (negative)
@@ -528,7 +540,7 @@ Vec6 CoarseTracker::calcRes(int lvl, const SE3 &refToNew, AffLight aff_g2l, floa
 	rs[2] = sumSquaredShiftT/(sumSquaredShiftNum+0.1);		// 纯平移时 平均像素移动的大小
 	rs[3] = 0;
 	rs[4] = sumSquaredShiftRT/(sumSquaredShiftNum+0.1);		// 平移+旋转 平均像素移动大小
-	rs[5] = numSaturated / (float)numTermsInE;   			// 大于cutoff阈值的百分比
+	rs[5] = numSaturated / (float)numTermsInE;   			// 大于cutoff阈值的个数和/小于cutoff阈值的个数的百分比
 
 	return rs;
 }
@@ -592,6 +604,13 @@ bool CoarseTracker::trackNewestCoarse(
 		Mat88 H; Vec8 b;
 		float levelCutoffRepeat=1;
 //[ ***step 1*** ] 计算残差, 保证最多60%残差大于阈值, 计算正规方程
+		// 返回的resOld的值
+		// resOld[0] = E;												// 投影的能量值
+		// resOld[1] = numTermsInE;									// 投影的点的数目
+		// resOld[2] = sumSquaredShiftT/(sumSquaredShiftNum+0.1);		// 纯平移时 平均像素移动的大小
+		// resOld[3] = 0;
+		// resOld[4] = sumSquaredShiftRT/(sumSquaredShiftNum+0.1);		// 平移+旋转 平均像素移动大小
+		// resOld[5] = numSaturated / (float)numTermsInE;   			// 大于cutoff阈值的个数和/小于cutoff阈值的个数的百分比
 		Vec6 resOld = calcRes(lvl, refToNew_current, aff_g2l_current, setting_coarseCutoffTH*levelCutoffRepeat);
 		
 		//* 保证大于阈值的点小于60%
@@ -675,6 +694,13 @@ bool CoarseTracker::trackNewestCoarse(
 			aff_g2l_new.a += incScaled[6];
 			aff_g2l_new.b += incScaled[7];
 
+			// resNew的含义如下
+			// resNew[0] = E;												// 投影的能量值
+			// resNew[1] = numTermsInE;									// 投影的点的数目
+			// resNew[2] = sumSquaredShiftT/(sumSquaredShiftNum+0.1);		// 纯平移时 平均像素移动的大小
+			// resNew[3] = 0;
+			// resNew[4] = sumSquaredShiftRT/(sumSquaredShiftNum+0.1);		// 平移+旋转 平均像素移动大小
+			// resNew[5] = numSaturated / (float)numTermsInE;   			// 大于cutoff阈值的个数和/小于cutoff阈值的个数的百分比
 			// 计算增量更新之后的resNew，若减小了则接受更新，然后进行迭代优化。否则调整lambda继续迭代。
 			Vec6 resNew = calcRes(lvl, refToNew_new, aff_g2l_new, setting_coarseCutoffTH*levelCutoffRepeat);
 			
@@ -719,7 +745,7 @@ bool CoarseTracker::trackNewestCoarse(
 		// set last residual for that level, as well as flow indicators.
 		lastResiduals[lvl] = sqrtf((float)(resOld[0] / resOld[1]));  // 上一次的残差
 		lastFlowIndicators = resOld.segment<3>(2);		//
-		if(lastResiduals[lvl] > 1.5*minResForAbort[lvl]) return false;  //! 如果算出来大于最好的直接放弃
+		if(lastResiduals[lvl] > 1.5*minResForAbort[lvl]) return false;  //! 如果算出来大于最好的直接放弃 此处的minResForAbort值为NAN，所以此判断没有用
 
 
 		if(levelCutoffRepeat > 1 && !haveRepeated)
