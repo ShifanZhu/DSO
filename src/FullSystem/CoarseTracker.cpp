@@ -439,7 +439,7 @@ Vec6 CoarseTracker::calcRes(int lvl, const SE3 &refToNew, AffLight aff_g2l, floa
 		float Kv = fyl * v + cyl;
 		float new_idepth = id/pt[2]; // 当前帧上的深度
 
-		if(lvl==0 && i%32==0)  //* 第0层 每隔32个点
+		if(lvl==0 && i%32==0)  //* 第0层 每隔32个点 TODO 为什么每隔32个点？应该是为了加速
 		{
 			//* 只正的平移 translation only (positive)
 			// RKi 和 Ki 之间相差一个 refToNew 旋转矩阵
