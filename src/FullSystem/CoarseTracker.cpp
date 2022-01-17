@@ -320,14 +320,14 @@ void CoarseTracker::calcGSSSE(int lvl, Mat88 &H_out, Vec8 &b_out, const SE3 &ref
 	__m128 zero = _mm_set1_ps(0);
 
 	// buf_warped 的含义
-	// buf_warped_idepth[numTermsInWarped] = new_idepth; 逆深度
-	// buf_warped_u[numTermsInWarped] = u; 像素坐标 x
-	// buf_warped_v[numTermsInWarped] = v; 像素坐标 y
-	// buf_warped_dx[numTermsInWarped] = hitColor[1]; x方向梯度
-	// buf_warped_dy[numTermsInWarped] = hitColor[2]; y方向梯度
-	// buf_warped_residual[numTermsInWarped] = residual; 残差
-	// buf_warped_weight[numTermsInWarped] = hw; // 权重，梯度越大权重越小
-	// buf_warped_refColor[numTermsInWarped] = lpc_color[i];
+	// buf_warped_idepth[numTermsInWarped] = new_idepth; // Rt投影到当前帧上的点的逆深度
+	// buf_warped_u[numTermsInWarped] = u; // Rt投影到当前帧上的点的归一化坐标（注意不是像素坐标）
+	// buf_warped_v[numTermsInWarped] = v;
+	// buf_warped_dx[numTermsInWarped] = hitColor[1]; // Rt投影到当前帧上的点的x方向梯度
+	// buf_warped_dy[numTermsInWarped] = hitColor[2]; // Rt投影到当前帧是的点的y方向梯度
+	// buf_warped_residual[numTermsInWarped] = residual; // Rt投影后参考帧和当前帧算的残差
+	// buf_warped_weight[numTermsInWarped] = hw; // Rt投影后参考帧和当前帧算的加权之后的残差(梯度越大权重越小)
+	// buf_warped_refColor[numTermsInWarped] = lpc_color[i]; // 参考帧上的灰度值
 
 	// buf_warped_n 是 numTermsInWarped ，放进去的个数
 	int n = buf_warped_n;
@@ -338,7 +338,7 @@ void CoarseTracker::calcGSSSE(int lvl, Mat88 &H_out, Vec8 &b_out, const SE3 &ref
 		__m128 dy = _mm_mul_ps(_mm_load_ps(buf_warped_dy+i), fyl);	//! dy*fy
 		__m128 u = _mm_load_ps(buf_warped_u+i);
 		__m128 v = _mm_load_ps(buf_warped_v+i);
-		__m128 id = _mm_load_ps(buf_warped_idepth+i);
+		__m128 id = _mm_load_ps(buf_warped_idepth+i); // id -> idepth
 
 
 		acc.updateSSE_eighted(
@@ -431,7 +431,7 @@ Vec6 CoarseTracker::calcRes(int lvl, const SE3 &refToNew, AffLight aff_g2l, floa
 		float x = lpc_u[i];
 		float y = lpc_v[i];
 		
-		//! 投影点
+		//! 通过使用refToNew，将点从ref上投影到当前帧上
 		Vec3f pt = RKi * Vec3f(x, y, 1) + t*id;
 		float u = pt[0] / pt[2]; // 归一化坐标
 		float v = pt[1] / pt[2];
@@ -464,11 +464,13 @@ Vec6 CoarseTracker::calcRes(int lvl, const SE3 &refToNew, AffLight aff_g2l, floa
 			float Kv3 = fyl * v3 + cyl;
 
 			//translation and rotation (positive)
-			//already have it.
+			//already have it. Ku and Kv
 			
 			//* 统计像素的移动大小
+			// 纯平移的像素移动大小
 			sumSquaredShiftT += (KuT-x)*(KuT-x) + (KvT-y)*(KvT-y);
 			sumSquaredShiftT += (KuT2-x)*(KuT2-x) + (KvT2-y)*(KvT2-y);
+			// 旋转和平移的像素移动大小
 			sumSquaredShiftRT += (Ku-x)*(Ku-x) + (Kv-y)*(Kv-y);
 			sumSquaredShiftRT += (Ku3-x)*(Ku3-x) + (Kv3-y)*(Kv3-y);
 			sumSquaredShiftNum+=2;
@@ -500,14 +502,14 @@ Vec6 CoarseTracker::calcRes(int lvl, const SE3 &refToNew, AffLight aff_g2l, floa
 			E += hw *residual*residual*(2-hw);
 			numTermsInE++;
 
-			buf_warped_idepth[numTermsInWarped] = new_idepth;
-			buf_warped_u[numTermsInWarped] = u;
+			buf_warped_idepth[numTermsInWarped] = new_idepth; // Rt投影到当前帧上的点的深度
+			buf_warped_u[numTermsInWarped] = u; // Rt投影到当前帧上的点的归一化坐标（注意不是像素坐标）
 			buf_warped_v[numTermsInWarped] = v;
-			buf_warped_dx[numTermsInWarped] = hitColor[1];
-			buf_warped_dy[numTermsInWarped] = hitColor[2];
-			buf_warped_residual[numTermsInWarped] = residual;
-			buf_warped_weight[numTermsInWarped] = hw;
-			buf_warped_refColor[numTermsInWarped] = lpc_color[i];
+			buf_warped_dx[numTermsInWarped] = hitColor[1]; // Rt投影到当前帧上的点的x方向梯度
+			buf_warped_dy[numTermsInWarped] = hitColor[2]; // Rt投影到当前帧是的点的y方向梯度
+			buf_warped_residual[numTermsInWarped] = residual; // Rt投影后参考帧和当前帧算的残差
+			buf_warped_weight[numTermsInWarped] = hw; // Rt投影后参考帧和当前帧算的加权之后的残差
+			buf_warped_refColor[numTermsInWarped] = lpc_color[i]; // 参考帧上的灰度值
 			numTermsInWarped++;
 		}
 	}
@@ -535,7 +537,7 @@ Vec6 CoarseTracker::calcRes(int lvl, const SE3 &refToNew, AffLight aff_g2l, floa
 	}
 
 	Vec6 rs;
-	rs[0] = E;												// 投影的能量值
+	rs[0] = E;												// 投影的能量值（加权后的残差）
 	rs[1] = numTermsInE;									// 投影的点的数目
 	rs[2] = sumSquaredShiftT/(sumSquaredShiftNum+0.1);		// 纯平移时 平均像素移动的大小
 	rs[3] = 0;
@@ -605,7 +607,7 @@ bool CoarseTracker::trackNewestCoarse(
 		float levelCutoffRepeat=1;
 //[ ***step 1*** ] 计算残差, 保证最多60%残差大于阈值, 计算正规方程
 		// 返回的resOld的值
-		// resOld[0] = E;												// 投影的能量值
+		// resOld[0] = E;												// 投影的能量值（加权后的残差）
 		// resOld[1] = numTermsInE;									// 投影的点的数目
 		// resOld[2] = sumSquaredShiftT/(sumSquaredShiftNum+0.1);		// 纯平移时 平均像素移动的大小
 		// resOld[3] = 0;
@@ -614,7 +616,7 @@ bool CoarseTracker::trackNewestCoarse(
 		Vec6 resOld = calcRes(lvl, refToNew_current, aff_g2l_current, setting_coarseCutoffTH*levelCutoffRepeat);
 		
 		//* 保证大于阈值的点小于60%
-		while(resOld[5] > 0.6 && levelCutoffRepeat < 50) 
+		while(resOld[5] > 0.6 && levelCutoffRepeat < 50)
 		{
 			levelCutoffRepeat*=2;		// 超过阈值的多, 则放大阈值重新计算
 			resOld = calcRes(lvl, refToNew_current, aff_g2l_current, setting_coarseCutoffTH*levelCutoffRepeat);

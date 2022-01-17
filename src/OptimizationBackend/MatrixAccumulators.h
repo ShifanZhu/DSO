@@ -1024,6 +1024,7 @@ public:
   }
 
 // 计算一个9维向量相乘, 得到9*9矩阵，即真正的Hessian矩阵
+// J0到J7是 Jx21， J8是r21
   inline void updateSSE(
 		  const __m128 J0,const __m128 J1,
 		  const __m128 J2,const __m128 J3,
@@ -1035,7 +1036,7 @@ public:
 		// 一共45个值，9+8+7+...+3+2+1 = 45
 	  float* pt=SSEData;
 		// 第一行9个值
-	  _mm_store_ps(pt, _mm_add_ps(_mm_load_ps(pt),_mm_mul_ps(J0,J0))); pt+=4;
+	  _mm_store_ps(pt, _mm_add_ps(_mm_load_ps(pt),_mm_mul_ps(J0,J0))); pt+=4; // Jx21*Jx21
 	  _mm_store_ps(pt, _mm_add_ps(_mm_load_ps(pt),_mm_mul_ps(J0,J1))); pt+=4;
 	  _mm_store_ps(pt, _mm_add_ps(_mm_load_ps(pt),_mm_mul_ps(J0,J2))); pt+=4;
 	  _mm_store_ps(pt, _mm_add_ps(_mm_load_ps(pt),_mm_mul_ps(J0,J3))); pt+=4;
@@ -1043,7 +1044,7 @@ public:
 	  _mm_store_ps(pt, _mm_add_ps(_mm_load_ps(pt),_mm_mul_ps(J0,J5))); pt+=4;
 	  _mm_store_ps(pt, _mm_add_ps(_mm_load_ps(pt),_mm_mul_ps(J0,J6))); pt+=4;
 	  _mm_store_ps(pt, _mm_add_ps(_mm_load_ps(pt),_mm_mul_ps(J0,J7))); pt+=4;
-	  _mm_store_ps(pt, _mm_add_ps(_mm_load_ps(pt),_mm_mul_ps(J0,J8))); pt+=4;
+	  _mm_store_ps(pt, _mm_add_ps(_mm_load_ps(pt),_mm_mul_ps(J0,J8))); pt+=4; // Jx21*r
 		// 第二行8个, 因为对称
 	  _mm_store_ps(pt, _mm_add_ps(_mm_load_ps(pt),_mm_mul_ps(J1,J1))); pt+=4;
 	  _mm_store_ps(pt, _mm_add_ps(_mm_load_ps(pt),_mm_mul_ps(J1,J2))); pt+=4;
@@ -1250,13 +1251,13 @@ public:
   }
 
 // 不使用对齐加速的, 带有权重的
-// J0 --> JbBuffer_new[i][0] += dp0[idx]*dd[idx]; // Hessian 矩阵右上角，左下角部分，光度误差对位姿的偏导*光度误差对逆深度的偏导, Hpx21, Jx21*Jp
+// J0 --> JbBuffer_new[i][0] += dp0[idx]*dd[idx]; // Hessian 矩阵右上角，左下角部分，光度误差对位姿的偏导*光度误差对逆深度的偏导, Hpx21 <--> Jx21*Jp
 // J1 --> JbBuffer_new[i][1] += dp1[idx]*dd[idx];
 // J2 --> JbBuffer_new[i][2] += dp2[idx]*dd[idx];
 // J3 --> JbBuffer_new[i][3] += dp3[idx]*dd[idx];
 // J4 --> JbBuffer_new[i][4] += dp4[idx]*dd[idx];
 // J5 --> JbBuffer_new[i][5] += dp5[idx]*dd[idx];
-// J6 --> JbBuffer_new[i][6] += dp6[idx]*dd[idx];// Hessian 矩阵右上角，左下角部分，光度误差对仿射变换的偏导*光度误差对逆深度的偏导, Hpx21, Jx21*Jp
+// J6 --> JbBuffer_new[i][6] += dp6[idx]*dd[idx];// Hessian 矩阵右上角，左下角部分，光度误差对仿射变换的偏导*光度误差对逆深度的偏导, Hpx21 <--> Jx21*Jp
 // J7 --> JbBuffer_new[i][7] += dp7[idx]*dd[idx];
 // J8 --> JbBuffer_new[i][8] += r[idx]*dd[idx]; // 残差(光度误差)*光度误差对逆深度的偏导, r*Jp
 // w --> 1/JbBuffer_new[i][9] += dd[idx]*dd[idx]; // Hessian 矩阵左上角，Hpp，光度误差对逆深度求导的平方, 1/(Jp*Jp)

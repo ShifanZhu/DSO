@@ -166,6 +166,8 @@ bool CoarseInitializer::trackFrame(FrameHessian* newFrameHessian, std::vector<IO
 		resetPoints(lvl); // 这里对顶层进行初始化!
 //[ ***step 4*** ] 迭代之前计算能量, Hessian等
 		// calcResAndGS()是该函数优化部分的核心
+		// H b: 对应"Gauss Newton 方程可以进一步写成"下边的公式，此处应该只更新了大 H 矩阵右下角 Jx21*Jx21 ，和　b 的下边　Jx21 * r21
+		// Hsc bsc: 对应"Schur Complement 消除"下边的公式，此处应该只更新了大 H 矩阵右下角 的被减数部分，和　b 的下边的被减数部分
 		Vec3f resOld = calcResAndGS(lvl, H, b, Hsc, bsc, refToNew_current, refToNew_aff_current, false);
 		applyStep(lvl); // 新的能量付给旧的
 
@@ -196,7 +198,9 @@ bool CoarseInitializer::trackFrame(FrameHessian* newFrameHessian, std::vector<IO
 			Mat88f Hl = H;
 			for(int i=0;i<8;i++) Hl(i,i) *= (1+lambda); // 这不是LM么,论文说没用, 嘴硬
 			// 舒尔补, 边缘化掉逆深度状态
+			// Hl 对应"Schur Complement 消除"下边的H矩阵右下角的式子
 			Hl -= Hsc*(1/(1+lambda)); // 因为dd必定是对角线上的, 所以也乘倒数
+			// bl 对应"Schur Complement 消除"下边的b矩阵下角的式子
 			Vec8f bl = b - bsc*(1/(1+lambda));
 			//? wM 为什么这么乘, 它对应着状态的 SCALE
 			//? (0.01f/(w[lvl]*h[lvl]))是为了减小数值, 更稳定?
@@ -205,13 +209,14 @@ bool CoarseInitializer::trackFrame(FrameHessian* newFrameHessian, std::vector<IO
 
 //[ ***step 5.2*** ] 求解增量
 			Vec8f inc;
-			if(fixAffine) // 固定光度参数
+			if(fixAffine) // 固定光度参数，只用前６个，最后两个置零
 			{
+				// wM 可能用来在对角存放，逆深度、旋转量、平移量、相机焦距、光度仿射系数等的比例系数
 				inc.head<6>() = - (wM.toDenseMatrix().topLeftCorner<6,6>() * (Hl.topLeftCorner<6,6>().ldlt().solve(bl.head<6>())));
 				inc.tail<2>().setZero();
 			}
 			// 通过上述计算的矩阵信息，进行迭代增量的求解。 inc 迭代增量表示相对位姿增量，相对仿射变换增量（8维）。求解增量会加入lambda，有点类似与LM的求解方法。
-			else
+			else　// 不固定光度系数，８个全部使用
 				inc = - (wM * (Hl.ldlt().solve(bl)));	//=-H^-1 * b. 迭代增量的求解
 
 //[ ***step 5.3*** ] 更新状态, doStep中更新逆深度
@@ -219,7 +224,7 @@ bool CoarseInitializer::trackFrame(FrameHessian* newFrameHessian, std::vector<IO
 			AffLight refToNew_aff_new = refToNew_aff_current;
 			refToNew_aff_new.a += inc[6];
 			refToNew_aff_new.b += inc[7];
-			doStep(lvl, lambda, inc);
+			doStep(lvl, lambda, inc);　// 不判断是否OK就直接用了吗？此处应该只是do一下，如果残差变小才accept，才最终apply
 
 			// 利用doStep(lvl, lambda, inc);计算选取的像素点逆深度增量。
 			// 再计算并更新了所有增量之后，重新计算残差以及优化用到的矩阵信息。其中calcEC(lvl)计算像素点的逆深度energy。
@@ -557,13 +562,13 @@ Vec3f CoarseInitializer::calcResAndGS(
 			//* 计算Hessian的第一行(列), 及Jr 关于逆深度那一行，注意此处的JbBuffer_new在for循环内，所以是对8个pattern点的累加
 			// JbBuffer_new在 idx pattern 循环内，分别对每点的8个 pattern 的JTx21Jρ,JTρr21,JρJTρ进行累加.
 			// 用来计算舒尔补
-			JbBuffer_new[i][0] += dp0[idx]*dd[idx]; // Hessian 矩阵右上角，左下角部分，光度误差对位姿的偏导*光度误差对逆深度的偏导, Hpx21, Jx21*Jp
+			JbBuffer_new[i][0] += dp0[idx]*dd[idx]; // Hessian 矩阵右上角，左下角部分，光度误差对位姿的偏导*光度误差对逆深度的偏导, Hpx21 <--> Jx21*Jp
 			JbBuffer_new[i][1] += dp1[idx]*dd[idx];
 			JbBuffer_new[i][2] += dp2[idx]*dd[idx];
 			JbBuffer_new[i][3] += dp3[idx]*dd[idx];
 			JbBuffer_new[i][4] += dp4[idx]*dd[idx];
 			JbBuffer_new[i][5] += dp5[idx]*dd[idx];
-			JbBuffer_new[i][6] += dp6[idx]*dd[idx];// Hessian 矩阵右上角，左下角部分，光度误差对仿射变换的偏导*光度误差对逆深度的偏导, Hpx21, Jx21*Jp
+			JbBuffer_new[i][6] += dp6[idx]*dd[idx];// Hessian 矩阵右上角，左下角部分，光度误差对仿射变换的偏导*光度误差对逆深度的偏导, Hpx21 <--> Jx21*Jp
 			JbBuffer_new[i][7] += dp7[idx]*dd[idx];
 			JbBuffer_new[i][8] += r[idx]*dd[idx]; // 残差(光度误差)*光度误差对逆深度的偏导, r*Jp
 			JbBuffer_new[i][9] += dd[idx]*dd[idx]; // Hessian 矩阵左上角，Hpp，光度误差对逆深度求导的平方, Jp*Jp
@@ -572,7 +577,7 @@ Vec3f CoarseInitializer::calcResAndGS(
 		// 如果点的pattern(其中一个像素)超出图像,像素值无穷, 或者残差大于阈值，--> 不是好的内点，使用上一帧的
 		if(!isGood || energy > point->outlierTH*20)
 		{
-			// E 的类型为Accumulator11
+			// E 的类型为Accumulator11，只存储残差
 			// energy[0]残差的平方, energy[1]正则化项(逆深度减一的平方)，注意此处的energy和point->energy的区别
 			E.updateSingle((float)(point->energy[0])); // 上一帧的加进来
 			point->isGood_new = false;
@@ -592,23 +597,23 @@ Vec3f CoarseInitializer::calcResAndGS(
 		// 调用 finish()函数，来先shiftUp(true)，来把数据放到 SSEData1m ，然后从 SSEData1m 放到 内部变量 H 
 
 		//! 因为使用128位相当于每次加4个数, 因此i+=4, 妙啊!
-		// update Hessian matrix.
+		// update Hessian matrix. 真正的Hessian矩阵!
 		for(int i=0;i+3<patternNum;i+=4)
 			acc9.updateSSE(
-					_mm_load_ps(((float*)(&dp0))+i),
-					_mm_load_ps(((float*)(&dp1))+i),
-					_mm_load_ps(((float*)(&dp2))+i),
-					_mm_load_ps(((float*)(&dp3))+i),
-					_mm_load_ps(((float*)(&dp4))+i),
-					_mm_load_ps(((float*)(&dp5))+i),
-					_mm_load_ps(((float*)(&dp6))+i),
-					_mm_load_ps(((float*)(&dp7))+i),
-					_mm_load_ps(((float*)(&r))+i));
+					_mm_load_ps(((float*)(&dp0))+i),  // Jx21
+					_mm_load_ps(((float*)(&dp1))+i),  // Jx21
+					_mm_load_ps(((float*)(&dp2))+i),  // Jx21
+					_mm_load_ps(((float*)(&dp3))+i),  // Jx21
+					_mm_load_ps(((float*)(&dp4))+i),  // Jx21
+					_mm_load_ps(((float*)(&dp5))+i),  // Jx21
+					_mm_load_ps(((float*)(&dp6))+i),  // Jx21
+					_mm_load_ps(((float*)(&dp7))+i),  // Jx21
+					_mm_load_ps(((float*)(&r))+i));   // r21
 
 		// 加0, 4, 8后面多余的值, 因为SSE2是以128为单位相加, 多余的单独加
-		// 先右移2位，再左移两位相当于把后两位去掉
+		// 先右移2位，再左移两位相当于把后两位去掉，然后从这里开始累加
 		for(int i=((patternNum>>2)<<2); i < patternNum; i++)
-			acc9.updateSingle(
+			acc9.updateSingle( // 此处应该只更新了大 H 矩阵右下角 Jx21*Jx21 ，和　b 的下边　Jx21 * r21
 					(float)dp0[i],(float)dp1[i],(float)dp2[i],(float)dp3[i],
 					(float)dp4[i],(float)dp5[i],(float)dp6[i],(float)dp7[i],
 					(float)r[i]);
@@ -637,7 +642,7 @@ Vec3f CoarseInitializer::calcResAndGS(
 		{
 			// TODO 和之前的不一样的地方在于这里更新energy[0]，不过这里为啥又更新E了呢？难道不应该是更新 EAlpha 吗？bug
 			// energy[0]残差的平方, energy[1]正则化项(逆深度减一的平方)，注意此处的energy和point->energy的区别
-			E.updateSingle((float)(point->energy[1])); //! 又是故意这样写的，没用的代码
+			E.updateSingle((float)(point->energy[1])); //! 又是故意这样写的，没用的代码。  TODO 此处E.finish()已经被调用，所以不会再更新了
 		}
 		else
 		{
@@ -688,6 +693,7 @@ Vec3f CoarseInitializer::calcResAndGS(
 
 		if(alphaOpt==0)
 		{
+			// couplingWeight 的值为1。　point->idepth_new　为该点在新的一帧(当前帧)上的逆深度。point->iR　为逆深度的期望值
 			JbBuffer_new[i][8] += couplingWeight*(point->idepth_new - point->iR);
 			JbBuffer_new[i][9] += couplingWeight;
 		}
@@ -705,10 +711,12 @@ Vec3f CoarseInitializer::calcResAndGS(
 
 
 	//printf("nelements in H: %d, in E: %d, in Hsc: %d / 9!\n", (int)acc9.num, (int)E.num, (int)acc9SC.num*9);
+	// 对应"Gauss Newton 方程可以进一步写成"下边的公式，此处应该只更新了大 H 矩阵右下角 Jx21*Jx21 ，和　b 的下边　Jx21 * r21
 	H_out = acc9.H.topLeftCorner<8,8>();// / acc9.num;  		!dp^T*dp
 	b_out = acc9.H.topRightCorner<8,1>();// / acc9.num; 		!dp^T*r 
+	// 对应"Schur Complement 消除"下边的公式，此处应该只更新了大 H 矩阵右下角 的被减数部分，和　b 的下边的被减数部分
 	H_out_sc = acc9SC.H.topLeftCorner<8,8>();// / acc9.num; 	!(dp*dd)^T*(dd*dd)^-1*(dd*dp)
-	b_out_sc = acc9SC.H.topRightCorner<8,1>();// / acc9.num;	!(dp*dd)^T*(dd*dd)^-1*(dp^T*r)
+	b_out_sc = acc9SC.H.topRightCorner<8,1>();// / acc9.num;	!(dp*dd)^T*(dd*dd)^-1*(dp^T*r) // 取得是　r*Jp * Jx21*Jp/(Jp*Jp)
 
 	//??? 啥意思
 	// t*t*ntps
@@ -1124,7 +1132,7 @@ void CoarseInitializer::doStep(int lvl, float lambda, Vec8f inc)
 		float newIdepth = pts[i].idepth + step;
 		if(newIdepth < 1e-3 ) newIdepth = 1e-3;
 		if(newIdepth > 50) newIdepth = 50; // max depth is 50?
-		pts[i].idepth_new = newIdepth;
+		pts[i].idepth_new = newIdepth; // 此处的pts[i].idepth_new并不是存储正确逆深度的变量，只是先存储下来作为临时变量，如果accept才赋值给下边的pts[i].idepth
 	}
 
 }
@@ -1143,7 +1151,7 @@ void CoarseInitializer::applyStep(int lvl)
 		}
 		pts[i].energy = pts[i].energy_new;
 		pts[i].isGood = pts[i].isGood_new;
-		pts[i].idepth = pts[i].idepth_new;
+		pts[i].idepth = pts[i].idepth_new; // 此处的pts[i].idepth才是存储正确逆深度的变量
 		pts[i].lastHessian = pts[i].lastHessian_new;
 	}
 	std::swap<Vec10f*>(JbBuffer, JbBuffer_new);
