@@ -600,14 +600,14 @@ Vec3f CoarseInitializer::calcResAndGS(
 		// update Hessian matrix. 真正的Hessian矩阵!
 		for(int i=0;i+3<patternNum;i+=4)
 			acc9.updateSSE(
-					_mm_load_ps(((float*)(&dp0))+i),  // Jx21
-					_mm_load_ps(((float*)(&dp1))+i),  // Jx21
-					_mm_load_ps(((float*)(&dp2))+i),  // Jx21
-					_mm_load_ps(((float*)(&dp3))+i),  // Jx21
-					_mm_load_ps(((float*)(&dp4))+i),  // Jx21
-					_mm_load_ps(((float*)(&dp5))+i),  // Jx21
-					_mm_load_ps(((float*)(&dp6))+i),  // Jx21
-					_mm_load_ps(((float*)(&dp7))+i),  // Jx21
+					_mm_load_ps(((float*)(&dp0))+i),  // Jx21 --> 位姿 x
+					_mm_load_ps(((float*)(&dp1))+i),  // Jx21 --> 位姿 y
+					_mm_load_ps(((float*)(&dp2))+i),  // Jx21 --> 位姿 z
+					_mm_load_ps(((float*)(&dp3))+i),  // Jx21 --> 旋转xi_1
+					_mm_load_ps(((float*)(&dp4))+i),  // Jx21 --> 旋转xi_2
+					_mm_load_ps(((float*)(&dp5))+i),  // Jx21 --> 旋转xi_3
+					_mm_load_ps(((float*)(&dp6))+i),  // Jx21 --> 辐射仿射变换两个参数
+					_mm_load_ps(((float*)(&dp7))+i),  // Jx21 --> 辐射仿射变换两个参数
 					_mm_load_ps(((float*)(&r))+i));   // r21
 
 		// 加0, 4, 8后面多余的值, 因为SSE2是以128为单位相加, 多余的单独加

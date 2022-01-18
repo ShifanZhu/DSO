@@ -1099,6 +1099,16 @@ public:
 
 
 // 带权重的9维向量得到9*9矩阵
+// J0 对位移x导数
+// J1 对位移y导数
+// J2 对位移z导数
+// J3 对旋转xi_1求导
+// J4 对旋转xi_2求导
+// J5 对旋转xi_3求导
+// J6 对辐射仿射变换a求导
+// J7 对辐射仿射变换b求导
+// J8 残差
+// w huber权重
   inline void updateSSE_eighted(
 		  const __m128 J0,const __m128 J1,
 		  const __m128 J2,const __m128 J3,

@@ -306,6 +306,8 @@ void CoarseTracker::makeCoarseDepthL0(std::vector<FrameHessian*> frameHessians)
 
 
 //@ 对跟踪的最新帧和参考帧之间的残差, 求 Hessian 和 b
+// TODO 此处的refToNew有什么用呢？在函数里边也没调用。
+// 其实不需要refToNew，因为buf_warped里边存储的点已经是经过SE3投影后的点了
 void CoarseTracker::calcGSSSE(int lvl, Mat88 &H_out, Vec8 &b_out, const SE3 &refToNew, AffLight aff_g2l)
 {
 	acc.initialize();
@@ -313,6 +315,10 @@ void CoarseTracker::calcGSSSE(int lvl, Mat88 &H_out, Vec8 &b_out, const SE3 &ref
 	__m128 fxl = _mm_set1_ps(fx[lvl]);
 	__m128 fyl = _mm_set1_ps(fy[lvl]);
 	__m128 b0 = _mm_set1_ps(lastRef_aff_g2l.b);
+	// lastRef->ab_exposure			参考帧曝光时间
+	// newFrame->ab_exposure		目标帧曝光时间
+	// lastRef_aff_g2l				参考帧光度仿射系数
+	// aff_g2l						目标帧光度仿射系数
 	__m128 a = _mm_set1_ps((float)(AffLight::fromToVecExposure(lastRef->ab_exposure, newFrame->ab_exposure, lastRef_aff_g2l, aff_g2l)[0]));
 
 	__m128 one = _mm_set1_ps(1);
@@ -341,6 +347,7 @@ void CoarseTracker::calcGSSSE(int lvl, Mat88 &H_out, Vec8 &b_out, const SE3 &ref
 		__m128 id = _mm_load_ps(buf_warped_idepth+i); // id -> idepth
 
 
+		// 下边几个雅克比参考CoarseInitializer.cpp的dp0数组，相同的算法
 		acc.updateSSE_eighted(
 				_mm_mul_ps(id,dx),  // 对位移x导数
 				_mm_mul_ps(id,dy),	// 对位移y导数
@@ -352,8 +359,8 @@ void CoarseTracker::calcGSSSE(int lvl, Mat88 &H_out, Vec8 &b_out, const SE3 &ref
 						_mm_mul_ps(_mm_mul_ps(u,v),dy),
 						_mm_mul_ps(dx,_mm_add_ps(one, _mm_mul_ps(u,u)))),	// 对旋转xi_2求导
 				_mm_sub_ps(_mm_mul_ps(u,dy), _mm_mul_ps(v,dx)),				// 对旋转xi_3求导
-				_mm_mul_ps(a,_mm_sub_ps(b0, _mm_load_ps(buf_warped_refColor+i))),	// 对目标帧a求导
-				minusOne,								// 对目标帧b求导
+				_mm_mul_ps(a,_mm_sub_ps(b0, _mm_load_ps(buf_warped_refColor+i))),	// 对辐射仿射变换a求导
+				minusOne,								// 对辐射仿射变换b求导
 				_mm_load_ps(buf_warped_residual+i), 	// 残差
 				_mm_load_ps(buf_warped_weight+i)); 		// huber权重
 	}
@@ -608,7 +615,7 @@ bool CoarseTracker::trackNewestCoarse(
 //[ ***step 1*** ] 计算残差, 保证最多60%残差大于阈值, 计算正规方程
 		// 返回的resOld的值
 		// resOld[0] = E;												// 投影的能量值（加权后的残差）
-		// resOld[1] = numTermsInE;									// 投影的点的数目
+		// resOld[1] = numTermsInE;										// 投影的点的数目
 		// resOld[2] = sumSquaredShiftT/(sumSquaredShiftNum+0.1);		// 纯平移时 平均像素移动的大小
 		// resOld[3] = 0;
 		// resOld[4] = sumSquaredShiftRT/(sumSquaredShiftNum+0.1);		// 平移+旋转 平均像素移动大小
@@ -768,6 +775,11 @@ bool CoarseTracker::trackNewestCoarse(
 	|| (setting_affineOptModeB != 0 && (fabsf(aff_g2l_out.b) > 200)))
 		return false;
 
+	// lastRef->ab_exposure 	参考帧曝光时间
+	// newFrame->ab_exposure 	目标帧曝光时间
+	// lastRef_aff_g2l 			参考帧光度仿射系数
+	// aff_g2l_out				目标帧光度仿射系数
+	// 返回 光度系数
 	Vec2f relAff = AffLight::fromToVecExposure(lastRef->ab_exposure, newFrame->ab_exposure, lastRef_aff_g2l, aff_g2l_out).cast<float>();
 
 	if((setting_affineOptModeA == 0 && (fabsf(logf((float)relAff[0])) > 1.5))
