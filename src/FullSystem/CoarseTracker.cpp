@@ -705,7 +705,7 @@ bool CoarseTracker::trackNewestCoarse(
 
 			// resNew的含义如下
 			// resNew[0] = E;												// 投影的能量值
-			// resNew[1] = numTermsInE;									// 投影的点的数目
+			// resNew[1] = numTermsInE;										// 投影的点的数目
 			// resNew[2] = sumSquaredShiftT/(sumSquaredShiftNum+0.1);		// 纯平移时 平均像素移动的大小
 			// resNew[3] = 0;
 			// resNew[4] = sumSquaredShiftRT/(sumSquaredShiftNum+0.1);		// 平移+旋转 平均像素移动大小
@@ -752,9 +752,11 @@ bool CoarseTracker::trackNewestCoarse(
 		}
 //[ ***step 3*** ] 记录上一次残差, 光流指示, 如果调整过阈值则重新计算这一层
 		// set last residual for that level, as well as flow indicators.
-		lastResiduals[lvl] = sqrtf((float)(resOld[0] / resOld[1]));  // 上一次的残差
+		lastResiduals[lvl] = sqrtf((float)(resOld[0] / resOld[1]));  // 上一次的残差均值，其实是最新的accept之后的残差均值
 		lastFlowIndicators = resOld.segment<3>(2);		//
-		if(lastResiduals[lvl] > 1.5*minResForAbort[lvl]) return false;  //! 如果算出来大于最好的直接放弃 此处的minResForAbort值为NAN，所以此判断没有用
+		if(lastResiduals[lvl] > 1.5*minResForAbort[lvl]) return false;  //! 如果算出来大于上次算出来的最好的残差的1.5倍就直接放弃
+																		// 在第一次for循环此处的minResForAbort值为NAN，所以此判断没有用。
+																		// 只是在第一次进来时为NAN，所以还有有用的
 
 
 		if(levelCutoffRepeat > 1 && !haveRepeated)

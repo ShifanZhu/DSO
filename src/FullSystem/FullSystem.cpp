@@ -394,6 +394,8 @@ Vec4 FullSystem::trackNewCoarse(FrameHessian* fh)
 		SE3 lastF_2_fh_this = lastF_2_fh_tries[i];
 		
 		// 根据优化结果设置返回值，传递给 trackingIsGood
+		// coarseTracker->lastResiduals[] 存储的是每一层的上次的残差均值 resOld，其实是最新的accept之后的残差均值
+		// 如果接受了(trackingIsGood is true)，achievedRes 里存 coarseTracker->lastResiduals[]的值
 		bool trackingIsGood = coarseTracker->trackNewestCoarse(
 				fh, lastF_2_fh_this, aff_g2l_this,
 				pyrLevelsUsed-1,
@@ -436,7 +438,8 @@ Vec4 FullSystem::trackNewCoarse(FrameHessian* fh)
 			for(int i=0;i<5;i++)
 			{
 				if(!std::isfinite((float)achievedRes[i]) || achievedRes[i] > coarseTracker->lastResiduals[i])	// take over if achievedRes is either bigger or NAN.
-					achievedRes[i] = coarseTracker->lastResiduals[i]; // 里面保存的是各层得到的能量值
+					// 如果接受了(trackingIsGood is true，也就是残差下降)，achievedRes 里存 coarseTracker->lastResiduals[]的残差均值
+					achievedRes[i] = coarseTracker->lastResiduals[i]; // 里面保存的是各层得到的能量值，也就是残差均值 resOld，其实是最新的accept之后的残差均值
 			}
 		}
 
@@ -469,7 +472,7 @@ Vec4 FullSystem::trackNewCoarse(FrameHessian* fh)
 		coarseTracker->firstCoarseRMSE = achievedRes[0];  // 第一次跟踪的平均能量值
 
     if(!setting_debugout_runquiet)
-        printf("Coarse Tracker tracked ab = %f %f (exp %f). Res %f!\n", aff_g2l.a, aff_g2l.b, fh->ab_exposure, achievedRes[0]);
+        printf("Coarse Tracker tracked ab = %f %f (exp %f). Res %f!\n", aff_g2l.a, aff_g2l.b, fh->ab_exposure, achievedRes[0]); // achievedRes[0] 是第0层残差均值
 
 
 
@@ -486,7 +489,10 @@ Vec4 FullSystem::trackNewCoarse(FrameHessian* fh)
 						<< tryIterations << "\n";
 	}
 
-
+	// achievedRes[0] 是第0层残差均值
+	// flowVecs[0] 是纯平移时，平均像素移动的大小
+	// flowVecs[1] = 0;
+	// flowVecs[2] 是平移+旋转时，平均像素移动大小
 	return Vec4(achievedRes[0], flowVecs[0], flowVecs[1], flowVecs[2]);
 }
 
@@ -960,6 +966,10 @@ void FullSystem::addActiveFrame( ImageAndExposure* image, int id )
 		}
 
 		//TODO 使用旋转和位移对像素移动的作用比来判断运动状态
+		// tres[0] 是第0层残差均值
+		// tres[1] 是纯平移时，平均像素移动的大小
+		// tres[2] = 0;
+		// tres[3] 是平移+旋转时，平均像素移动大小
 		Vec4 tres = trackNewCoarse(fh); // 对参考帧进行跟踪
 		if(!std::isfinite((double)tres[0]) || !std::isfinite((double)tres[1]) || !std::isfinite((double)tres[2]) || !std::isfinite((double)tres[3]))
         {
