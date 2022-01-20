@@ -42,6 +42,7 @@ ImmaturePoint::ImmaturePoint(int u_, int v_, FrameHessian* host_, float type, Ca
 		int dy = patternP[idx][1];
 
 		// 由于+0.5导致积分, 插值得到值3个 [像素值, dx, dy]
+		// ptc[0] 像素灰度值, ptc[1] x方向灰度梯度, ptc[2] y方向灰度梯度
         Vec3f ptc = getInterpolatedElement33BiLin(host->dI, u+dx, v+dy,wG[0]); 
 
 
@@ -49,7 +50,7 @@ ImmaturePoint::ImmaturePoint(int u_, int v_, FrameHessian* host_, float type, Ca
 		color[idx] = ptc[0];
 		if(!std::isfinite(color[idx])) {energyTH=NAN; return;}
 
-		// 梯度矩阵[dx*2, dxdy; dydx, dy^2]
+		// gradH 是8个patternP点的灰度梯度矩阵[dx*2, dxdy; dydx, dy^2]
 		gradH += ptc.tail<2>()  * ptc.tail<2>().transpose();
 		//! 点的权重 c^2 / ( c^2 + ||grad||^2 )
 		weights[idx] = sqrtf(setting_outlierTHSumComponent / (setting_outlierTHSumComponent + ptc.tail<2>().squaredNorm()));
@@ -83,6 +84,7 @@ ImmaturePoint::~ImmaturePoint()
 // （4）利用前三步计算的结果确定极线搜索的方向，然后通过调整步长（次数为numSteps），选取其中最好的结果作为初值用于后续的高斯牛顿优化。
 // （5）注意此处优化的变量是步长，迭代优化的过程与其他优化一样，通过setting_trace_GNIterations和setting_trace_GNThreshold确定何时退出迭代。
 // （6）优化结束之后，返回未成熟点的跟踪状态。
+// hostToFrame_* 的旋转矩阵是 hostToNew 即host帧到最新帧
 ImmaturePointStatus ImmaturePoint::traceOn(FrameHessian* frame,const Mat33f &hostToFrame_KRKi, const Vec3f &hostToFrame_Kt, const Vec2f& hostToFrame_affine, 
 											CalibHessian* HCalib, bool debugPrint)
 {
@@ -91,6 +93,7 @@ ImmaturePointStatus ImmaturePoint::traceOn(FrameHessian* frame,const Mat33f &hos
 
 	debugPrint = false;//rand()%100==0;
 	float maxPixSearch = (wG[0]+hG[0])*setting_maxPixSearch;  // 极限搜索的最大长度
+	std::cout << "wG hG = " << wG[0] << " " << hG[0] << std::endl;
 
 	if(debugPrint)
 		printf("trace pt (%.1f %.1f) from frame %d to %d. Range %f -> %f. t %f %f %f!\n",
@@ -109,8 +112,9 @@ ImmaturePointStatus ImmaturePoint::traceOn(FrameHessian* frame,const Mat33f &hos
 	// ============== project min and max. return if one of them is OOB ===================
 //[ ***step 1*** ] 计算出来搜索的上下限, 对应idepth_max, idepth_min
 	// （1）利用idepth_min计算出未成熟点在当前帧的投影位置，得到（uMin，vMin），对投影位置进行判断，不满足条件的设置ImmaturePointStatus::IPS_OOB;
+	// u v 是host里的像素坐标
 	Vec3f pr = hostToFrame_KRKi * Vec3f(u,v, 1);
-	Vec3f ptpMin = pr + hostToFrame_Kt*idepth_min;
+	Vec3f ptpMin = pr + hostToFrame_Kt*idepth_min; // idepth_min 是逆深度范围的最小值
 	float uMin = ptpMin[0] / ptpMin[2];
 	float vMin = ptpMin[1] / ptpMin[2];
 
@@ -129,9 +133,10 @@ ImmaturePointStatus ImmaturePoint::traceOn(FrameHessian* frame,const Mat33f &hos
 	float vMax;
 	Vec3f ptpMax;
 	// （2）若定义了 idepth_max ，则利用 idepth_max 计算出未成熟点在当前帧的投影位置，得到（ uMax ， vMax ），对投影位置进行判断，不满足条件的设置 ImmaturePointStatus::IPS_OOB;
+	// 默认没有定义 idepth_max
 	if(std::isfinite(idepth_max))
 	{
-		ptpMax = pr + hostToFrame_Kt*idepth_max;
+		ptpMax = pr + hostToFrame_Kt*idepth_max; // idepth_max 是逆深度范围的最大值
 		uMax = ptpMax[0] / ptpMax[2];
 		vMax = ptpMax[1] / ptpMax[2];
 
@@ -147,14 +152,15 @@ ImmaturePointStatus ImmaturePoint::traceOn(FrameHessian* frame,const Mat33f &hos
 
 
 		// ============== check their distance. everything below 2px is OK (-> skip). ===================
-		dist = (uMin-uMax)*(uMin-uMax) + (vMin-vMax)*(vMin-vMax);
+		dist = (uMin-uMax)*(uMin-uMax) + (vMin-vMax)*(vMin-vMax); // distance in pixel coordinate
 		dist = sqrtf(dist);
 		//* 搜索的范围太小
-		if(dist < setting_trace_slackInterval)
+		if(dist < setting_trace_slackInterval) // if pixel-interval is smaller than this, leave it be. 不管它
 		{
 			if(debugPrint)
 				printf("TOO CERTAIN ALREADY (dist %f)!\n", dist);
 
+			// lastTraceUV 是上一次搜索得到的位置， lastTracePixelInterval 是上一次的搜索范围长度
 			lastTraceUV = Vec2f(uMax+uMin, vMax+vMin)*0.5;  // 直接设为中值
 			lastTracePixelInterval=dist;
 			return lastTraceStatus = ImmaturePointStatus::IPS_SKIPPED; //跳过
@@ -166,7 +172,7 @@ ImmaturePointStatus ImmaturePoint::traceOn(FrameHessian* frame,const Mat33f &hos
 	else
 	{
 		//* 上限无穷大, 则设为最大值
-		dist = maxPixSearch;
+		dist = maxPixSearch; // maxPixSearch的值为0.027*(w+h) 对于(346+260)*0.027 = 16.362
 
 		// project to arbitrary depth to get direction.
 		ptpMax = pr + hostToFrame_Kt*0.01;
@@ -187,6 +193,7 @@ ImmaturePointStatus ImmaturePoint::traceOn(FrameHessian* frame,const Mat33f &hos
 		if(!(uMax > 4 && vMax > 4 && uMax < wG[0]-5 && vMax < hG[0]-5))
 		{
 			if(debugPrint) printf("OOB uMax-coarse %f %f %f!\n", uMax, vMax,  ptpMax[2]);
+			std::cout << "dist = " << dist << std::endl;
 			lastTraceUV = Vec2f(-1,-1);
 			lastTracePixelInterval=0;
 			return lastTraceStatus = ImmaturePointStatus::IPS_OOB;
@@ -197,6 +204,7 @@ ImmaturePointStatus ImmaturePoint::traceOn(FrameHessian* frame,const Mat33f &hos
 	//? 为什么是这个值呢??? 0.75 - 1.5 
 	// 这个值是两个帧上深度的比值, 它的变化太大就是前后尺度变化太大了
 	// set OOB if scale change too big.
+	// 如果idepth_min>=0并且ptpMin<=0.75或>=1.5，才进入if
 	if(!(idepth_min<0 || (ptpMin[2]>0.75 && ptpMin[2]<1.5)))
 	{
 		if(debugPrint) printf("OOB SCALE %f %f %f!\n", uMax, vMax,  ptpMin[2]);
@@ -207,17 +215,18 @@ ImmaturePointStatus ImmaturePoint::traceOn(FrameHessian* frame,const Mat33f &hos
 
 //[ ***step 2*** ] 计算误差大小(图像梯度和极线夹角大小), 夹角大, 小的几何误差会有很大影响
 	// ============== compute error-bounds on result in pixel. if the new interval is not at least 1/2 of the old, SKIP ===================
-	float dx = setting_trace_stepsize*(uMax-uMin);
+	float dx = setting_trace_stepsize*(uMax-uMin); // setting_trace_stepsize 是 stepsize for initial discrete search. 值为1.0
 	float dy = setting_trace_stepsize*(vMax-vMin);
 
+	// gradH 是8个patternP点的灰度梯度矩阵[dx*2, dxdy; dydx, dy^2]
 	//! (dIx*dx + dIy*dy)^2
 	float a = (Vec2f(dx,dy).transpose() * gradH * Vec2f(dx,dy)); 
 	//! (dIx*dy - dIy*dx)^2
 	float b = (Vec2f(dy,-dx).transpose() * gradH * Vec2f(dy,-dx)); // (dx, dy)垂直方向的乘积
-	// 计算的是极线方向和梯度方向的夹角大小，90度则a=0, errorInPixel变大；平行时候b=0
+	// 计算的是极线搜索方向和梯度方向的夹角大小，90度则a=0, errorInPixel变大；平行时候b=0
 	float errorInPixel = 0.2f + 0.2f * (a+b) / a; // 没有使用LSD的方法, 估计是能有效防止位移小的情况
 
-	//* errorInPixel大说明垂直, 这时误差会很大, 视为bad
+	//* errorInPixel大说明极线搜索方向和梯度方向垂直, 这时误差会很大, 视为bad
 	if(errorInPixel*setting_trace_minImprovementFactor > dist && std::isfinite(idepth_max))
 	{
 		if(debugPrint)
@@ -234,7 +243,7 @@ ImmaturePointStatus ImmaturePoint::traceOn(FrameHessian* frame,const Mat33f &hos
 	// ============== do the discrete search ===================
 //[ ***step 3*** ] 在极线上找到最小的光度误差的位置, 并计算和第二次的比值作为质量
 	// （4）利用前（3）步计算的结果确定极线搜索的方向，然后通过调整步长（次数为 numSteps ），选取其中最好的结果作为初值用于后续的高斯牛顿优化。
-	dx /= dist; // cos
+	dx /= dist; // cos // 此处的dist应该为16.362，现在的dx和dy是一个小步长
 	dy /= dist;	// sin
 
 	if(debugPrint)
@@ -258,11 +267,11 @@ ImmaturePointStatus ImmaturePoint::traceOn(FrameHessian* frame,const Mat33f &hos
 	Mat22f Rplane = hostToFrame_KRKi.topLeftCorner<2,2>();
 
 	float randShift = uMin*1000-floorf(uMin*1000); // 	取小数点后面的做随机数??
-	float ptx = uMin-randShift*dx;
+	float ptx = uMin-randShift*dx; // 这个得到的是uMin左上角的一个值，相当于从uvMin的前边一点开始算
 	float pty = vMin-randShift*dy;
 
 	//* pattern在新的帧上的偏移量
-	Vec2f rotatetPattern[MAX_RES_PER_POINT];
+	Vec2f rotatetPattern[MAX_RES_PER_POINT]; // MAX_RES_PER_POINT的值为8
 	for(int idx=0;idx<patternNum;idx++)
 		rotatetPattern[idx] = Rplane * Vec2f(patternP[idx][0], patternP[idx][1]);
 
@@ -307,23 +316,23 @@ ImmaturePointStatus ImmaturePoint::traceOn(FrameHessian* frame,const Mat33f &hos
 
 
 		errors[i] = energy;
-		if(energy < bestEnergy)
+		if(energy < bestEnergy) // energy变小
 		{
 			bestU = ptx; bestV = pty; bestEnergy = energy; bestIdx = i;
 		}
 
-		// 每次走1 dist对应大小
+		// 每次走dx/dist对应大小
 		ptx+=dx; 
 		pty+=dy;
 	}
 
-	//* 在一定的半径内找最到误差第二小的, 差的足够大, 才更好(这个常用)
+	//* 在一定的半径内找最到误差第二小的, 差的足够大, 才更好(这个常用) // 应该是在一定的半径外找误差第二小的
 	// find best score outside a +-2px radius.
 	float secondBest=1e10;
-	for(int i=0;i<numSteps;i++)
+	for(int i=0;i<numSteps;i++) // setting_minTraceTestRadius的值是2
 	{
 		if((i < bestIdx-setting_minTraceTestRadius || i > bestIdx+setting_minTraceTestRadius) && errors[i] < secondBest)
-			secondBest = errors[i];
+			secondBest = errors[i]; // 在bestIdx附近之外的地方找，不能在附近找 TODO 合理么
 	}
 	float newQuality = secondBest / bestEnergy;
 	if(newQuality < quality || numSteps > 10) quality = newQuality;
@@ -332,7 +341,7 @@ ImmaturePointStatus ImmaturePoint::traceOn(FrameHessian* frame,const Mat33f &hos
 	// ============== do GN optimization ===================
 	// （5）注意此处优化的变量是步长，迭代优化的过程与其他优化一样，通过 setting_trace_GNIterations 和 setting_trace_GNThreshold 确定何时退出迭代。
 	float uBak=bestU, vBak=bestV, gnstepsize=1, stepBack=0;
-	if(setting_trace_GNIterations>0) bestEnergy = 1e5;
+	if(setting_trace_GNIterations>0) bestEnergy = 1e5; // setting_trace_GNIterations的值是3
 	int gnStepsGood=0, gnStepsBad=0;
 	for(int it=0;it<setting_trace_GNIterations;it++)
 	{
@@ -401,6 +410,7 @@ ImmaturePointStatus ImmaturePoint::traceOn(FrameHessian* frame,const Mat33f &hos
 	//	float absGrad1 = getInterpolatedElement(frame->absSquaredGrad[1],bestU*0.5-0.25, bestV*0.5-0.25, wG[1]);
 	//	float absGrad2 = getInterpolatedElement(frame->absSquaredGrad[2],bestU*0.25-0.375, bestV*0.25-0.375, wG[2]);
 	//* 残差太大, 则设置为外点
+	// setting_trace_extraSlackOnTH的值是1.2 for energy-based outlier check, be slightly more relaxed by this factor.
 	if(!(bestEnergy < energyTH*setting_trace_extraSlackOnTH))
 	//			|| (absGrad0*areaGradientSlackFactor < host->frameGradTH
 	//		     && absGrad1*areaGradientSlackFactor < host->frameGradTH*0.75f

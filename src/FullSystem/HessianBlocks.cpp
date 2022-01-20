@@ -71,8 +71,9 @@ void PointHessian::release()
 }
 
 //@ 设置固定线性化点位置的状态
+// 零空间附近的微小扰动，正负加减，1.0001的乘除
 //TODO 后面求nullspaces地方没看懂, 回头再看<2019.09.18> 数学原理是啥?
-void FrameHessian::setStateZero(const Vec10 &state_zero)
+void FrameHessian::setStateZero(const Vec10 &state_zero) // 此处传进来的state是0
 {
 	//! 前六维位姿必须是0
 	assert(state_zero.head<6>().squaredNorm() < 1e-20);
@@ -86,25 +87,28 @@ void FrameHessian::setStateZero(const Vec10 &state_zero)
 	//TODO 这个是数值求导的方法么???
 	for(int i=0;i<6;i++)
 	{
+		// eps 是 espilon的缩写，表示一个很小的值，用于微小的扰动
 		Vec6 eps; eps.setZero(); eps[i] = 1e-3;
-		SE3 EepsP = Sophus::SE3::exp(eps);
-		SE3 EepsM = Sophus::SE3::exp(-eps);
+		SE3 EepsP = Sophus::SE3::exp(eps); // 正的微小的扰动
+		SE3 EepsM = Sophus::SE3::exp(-eps); // 负的微小的扰动
+		// get_worldToCam_evalPT()得到在估计的相机位姿 worldToCam_evalPT，evalPT 可能是 evaluated pose and translation
 		SE3 w2c_leftEps_P_x0 = (get_worldToCam_evalPT() * EepsP) * get_worldToCam_evalPT().inverse();
 		SE3 w2c_leftEps_M_x0 = (get_worldToCam_evalPT() * EepsM) * get_worldToCam_evalPT().inverse();
-		nullspaces_pose.col(i) = (w2c_leftEps_P_x0.log() - w2c_leftEps_M_x0.log())/(2e-3);
+		nullspaces_pose.col(i) = (w2c_leftEps_P_x0.log() - w2c_leftEps_M_x0.log())/(2e-3); // 零空间附近的正微小扰动
 	}
 	//nullspaces_pose.topRows<3>() *= SCALE_XI_TRANS_INVERSE;
 	//nullspaces_pose.bottomRows<3>() *= SCALE_XI_ROT_INVERSE;
 
 	//? rethink
 	// scale change
+	// 得到在估计的相机位姿 worldToCam_evalPT, 其传进来的值为 fh->shell->camToWorld.inverse()
 	SE3 w2c_leftEps_P_x0 = (get_worldToCam_evalPT());
-	w2c_leftEps_P_x0.translation() *= 1.00001;
+	w2c_leftEps_P_x0.translation() *= 1.00001; // 这是在干嘛？加一个微小扰动么？乘以一个微小扰动
 	w2c_leftEps_P_x0 = w2c_leftEps_P_x0 * get_worldToCam_evalPT().inverse();
 	SE3 w2c_leftEps_M_x0 = (get_worldToCam_evalPT());
-	w2c_leftEps_M_x0.translation() /= 1.00001;
+	w2c_leftEps_M_x0.translation() /= 1.00001; // 除以一个微小扰动
 	w2c_leftEps_M_x0 = w2c_leftEps_M_x0 * get_worldToCam_evalPT().inverse();
-	nullspaces_scale = (w2c_leftEps_P_x0.log() - w2c_leftEps_M_x0.log())/(2e-3);
+	nullspaces_scale = (w2c_leftEps_P_x0.log() - w2c_leftEps_M_x0.log())/(2e-3); // 零空间附近的正微小扰动
 
 
 	nullspaces_affine.setZero();

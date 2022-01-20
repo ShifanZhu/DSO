@@ -152,7 +152,7 @@ struct FrameHessian
 	Vec6 nullspaces_scale;
 
 	// variable info.
-	SE3 worldToCam_evalPT;		//!< 在估计的相机位姿
+	SE3 worldToCam_evalPT;		//!< 在估计的相机位姿。 evalPT 可能是 evaluated pose and translation
 	// [0-5: 位姿左乘小量. 6-7: a,b 光度仿射系数]
 	//* 这三个是与线性化点的增量, 而光度参数不是增量, state就是值
 	Vec10 state_zero;   		//!< 固定的线性化点的状态增量, 为了计算进行缩放
@@ -200,18 +200,31 @@ struct FrameHessian
 		PRE_camToWorld = PRE_worldToCam.inverse();
 		//setCurrentNullspace();
 	};
-	//* 设置增量, 传入state_scaled
+
+	//* 设置增量, 传入 state_scaled
+	// [0-5: 位姿左乘小量. 6-7: a,b 光度仿射系数]
+	//* 这三个是与线性化点的增量, 而光度参数不是增量, state就是值
+	// Vec10 state_zero;   		//!< 固定的线性化点的状态增量, 为了计算进行缩放
+	// Vec10 state_scaled;			//!< 乘上比例系数的状态增量, 这个是真正求的值!!!
+	// Vec10 state;				//!< 计算的状态增量
+	// //* step是与上一次优化结果的状态增量, [8 ,9]直接就设置为0了
+	// Vec10 step;					//!< 求解正规方程得到的增量
+	// Vec10 step_backup;			//!< 上一次的增量备份
+	// Vec10 state_backup;			//!< 上一次状态的备份
 	inline void setStateScaled(const Vec10 &state_scaled)
 	{
-
+		// 注意此处state_scaled 传进来的值是0！
 		this->state_scaled = state_scaled;
-		state.segment<3>(0) = SCALE_XI_TRANS_INVERSE * state_scaled.segment<3>(0);
-		state.segment<3>(3) = SCALE_XI_ROT_INVERSE * state_scaled.segment<3>(3);
-		state[6] = SCALE_A_INVERSE * state_scaled[6];
-		state[7] = SCALE_B_INVERSE * state_scaled[7];
-		state[8] = SCALE_A_INVERSE * state_scaled[8];
-		state[9] = SCALE_B_INVERSE * state_scaled[9];
+		// TODO state 的初始值都是0，那为什么还要乘以前边的系数呢？
+		state.segment<3>(0) = SCALE_XI_TRANS_INVERSE * state_scaled.segment<3>(0); // 012是平移
+		state.segment<3>(3) = SCALE_XI_ROT_INVERSE * state_scaled.segment<3>(3); // 345是旋转
+		state[6] = SCALE_A_INVERSE * state_scaled[6]; // 6是光度系数a
+		state[7] = SCALE_B_INVERSE * state_scaled[7]; // 7是光度系数b
+		state[8] = SCALE_A_INVERSE * state_scaled[8]; // 8也是光度系数a?
+		state[9] = SCALE_B_INVERSE * state_scaled[9]; // 9也是光度系数b?
 		
+		// 设置world和camera的位姿
+		// get_worldToCam_evalPT()得到在估计的相机位姿。 evalPT 可能是 evaluated pose and translation
 		PRE_worldToCam = SE3::exp(w2c_leftEps()) * get_worldToCam_evalPT();
 		PRE_camToWorld = PRE_worldToCam.inverse();
 		//setCurrentNullspace();
@@ -227,18 +240,19 @@ struct FrameHessian
 
 
 	//* 设置当前位姿, 光度仿射系数, FEJ点
-	// 在setEvalPT_scaled()函数里，定义了一个10维向量： initial_state ，并赋值。然后利用函数 setStateScaled()对向量进行处理：
-	// 乘以相关参数（SCALE_xxxxx），计算了PRE_worldToCam和PRE_camToWorld。
-	// 然后利用setStateZero()函数对上一步计算的state进行处理：计算了一些扰动量以及nullspace。
+	// 在 setEvalPT_scaled()函数里，定义了一个10维向量： initial_state ，并赋值0。然后利用函数 setStateScaled()对向量进行处理：
+	// 乘以相关参数（ SCALE_xxxxx ），计算了 PRE_worldToCam 和 PRE_camToWorld 。
+	// 然后利用 setStateZero()函数对上一步计算的state进行处理：计算了一些扰动量以及 nullspace 。
 	// （这个地方处理的作用以及为什么要这样做还不太清楚。）
 	inline void setEvalPT_scaled(const SE3 &worldToCam_evalPT, const AffLight &aff_g2l)
 	{
+		// [0-5: 位姿左乘小量. 6-7: a,b 光度仿射系数]
 		Vec10 initial_state = Vec10::Zero();
 		initial_state[6] = aff_g2l.a; // 直接设置光度系数a和b
 		initial_state[7] = aff_g2l.b;
 		this->worldToCam_evalPT = worldToCam_evalPT;
 		setStateScaled(initial_state);
-		setStateZero(this->get_state());
+		setStateZero(this->get_state()); // 此处的get_state调用上一步初始化的state，初始化都是0
 	};
 
 	//* 释放该帧内存

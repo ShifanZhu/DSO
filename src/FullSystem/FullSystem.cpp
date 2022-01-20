@@ -513,8 +513,8 @@ void FullSystem::traceNewCoarse(FrameHessian* fh)
 	// 遍历frameHessians，遍历所有ImmaturePoint，(此时在第八帧上提取了点，生成了ImmaturePoint)利用函数traceOn进行跟踪（又称极线搜索）。
 	for(FrameHessian* host : frameHessians)		// go through all active frames
 	{
-
-		SE3 hostToNew = fh->PRE_worldToCam * host->PRE_camToWorld;
+		// 预计算的, 位姿状态增量更新到位姿上
+		SE3 hostToNew = fh->PRE_worldToCam * host->PRE_camToWorld; // host帧到最新帧的位姿
 		Mat33f KRKi = K * hostToNew.rotationMatrix().cast<float>() * K.inverse();
 		Vec3f Kt = K * hostToNew.translation().cast<float>();
 
@@ -994,6 +994,7 @@ void FullSystem::addActiveFrame( ImageAndExposure* image, int id )
 			needToMakeKF = allFrameHistory.size()== 1 ||
 					setting_kfGlobalWeight*setting_maxShiftWeightT *  sqrtf((double)tres[1]) / (wG[0]+hG[0]) +  // 平移像素位移
 					setting_kfGlobalWeight*setting_maxShiftWeightR *  sqrtf((double)tres[2]) / (wG[0]+hG[0]) + 	//TODO 旋转像素位移, 设置为0???
+																												// 应该是纯旋转就不添加关键帧
 					setting_kfGlobalWeight*setting_maxShiftWeightRT * sqrtf((double)tres[3]) / (wG[0]+hG[0]) +	// 旋转+平移像素位移
 					setting_kfGlobalWeight*setting_maxAffineWeight * fabs(logf((float)refToFh[0])) > 1 ||		// 光度变化大
 					2*coarseTracker->firstCoarseRMSE < tres[0];		// 误差能量变化太大(最初的两倍)
@@ -1022,6 +1023,8 @@ void FullSystem::deliverTrackedFrame(FrameHessian* fh, bool needKF)
 {
 
 	//! 顺序执行
+	// if playbackSpeed == 0 then linearizeOperation is true for linearize (play as fast as possible, while sequentializing tracking & mapping). 
+	// otherwise(if playbackSpeed != 0), factor on timestamps.
 	if(linearizeOperation) 
 	{
 		if(goStepByStep && lastRefStopID != coarseTracker->refFrameID)
@@ -1174,11 +1177,11 @@ void FullSystem::makeKeyFrame( FrameHessian* fh)
 		//? 为啥要从shell来设置 ???   答: 因为shell不删除, 而且参考帧还会被优化, shell是桥梁
 		boost::unique_lock<boost::mutex> crlock(shellPoseMutex);
 		assert(fh->shell->trackingRef != 0);
-		// 1.获取当前帧的camToWorld，并对当前帧的状态进行setEvalPT_scaled()处理。
+		// 1.获取当前帧的camToWorld，并对当前帧的状态进行 setEvalPT_scaled()处理。
 		fh->shell->camToWorld = fh->shell->trackingRef->camToWorld * fh->shell->camToTrackingRef;
-		// 在setEvalPT_scaled()函数里，定义了一个10维向量： initial_state ，并赋值。然后利用函数 setStateScaled()对向量进行处理：
-		// 乘以相关参数（SCALE_xxxxx），计算了PRE_worldToCam和PRE_camToWorld。
-		// 然后利用setStateZero()函数对上一步计算的state进行处理：计算了一些扰动量以及nullspace。
+		// 在 setEvalPT_scaled()函数里，定义了一个10维向量： initial_state ，并赋值。然后利用函数 setStateScaled()对向量进行处理：
+		// 乘以相关参数（ SCALE_xxxxx ），计算了 PRE_worldToCam 和 PRE_camToWorld 。
+		// 然后利用 setStateZero()函数对上一步计算的state进行处理：计算了一些扰动量以及 nullspace 。
 		fh->setEvalPT_scaled(fh->shell->camToWorld.inverse(),fh->shell->aff_g2l); // 待优化值
 	}
 
