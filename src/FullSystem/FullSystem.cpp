@@ -318,6 +318,10 @@ Vec4 FullSystem::trackNewCoarse(FrameHessian* fh)
 			aff_last_2_l = slast->aff_g2l;
 		}
 		SE3 fh_2_slast = slast_2_sprelast;// assumed to be the same as fh_2_slast. // 当前帧到上一帧 = 上一帧和大上一帧的
+		std::cout << "sprelast time = " << sprelast -> timestamp << std::endl;
+		std::cout << "slast time = " << slast -> timestamp << std::endl;
+		std::cout << "fh time = " << fh -> shell -> timestamp << std::endl;
+		std::cout << "lastF time = " << lastF -> shell -> timestamp << std::endl;
 
 		//! 尝试不同的运动
 		// get last delta-movement.
@@ -902,6 +906,7 @@ void FullSystem::addActiveFrame( ImageAndExposure* image, int id )
 	shell->aff_g2l = AffLight(0,0); // 光度仿射变换, 用来建模曝光时间
     shell->marginalizedAt = shell->id = allFrameHistory.size();
     shell->timestamp = image->timestamp;
+	std::cout << "img time = " << image->timestamp << std::endl;
     shell->incoming_id = id;
 	fh->shell = shell;
 	// 加入到allFrameHistory (所有的历史帧)

@@ -84,7 +84,7 @@ ImmaturePoint::~ImmaturePoint()
 // （4）利用前三步计算的结果确定极线搜索的方向，然后通过调整步长（次数为numSteps），选取其中最好的结果作为初值用于后续的高斯牛顿优化。
 // （5）注意此处优化的变量是步长，迭代优化的过程与其他优化一样，通过setting_trace_GNIterations和setting_trace_GNThreshold确定何时退出迭代。
 // （6）优化结束之后，返回未成熟点的跟踪状态。
-// hostToFrame_* 的旋转矩阵是 hostToNew 即host帧到最新帧
+// hostToFrame_* 的旋转矩阵是 hostToNew (即host帧到最新帧)
 ImmaturePointStatus ImmaturePoint::traceOn(FrameHessian* frame,const Mat33f &hostToFrame_KRKi, const Vec3f &hostToFrame_Kt, const Vec2f& hostToFrame_affine, 
 											CalibHessian* HCalib, bool debugPrint)
 {
@@ -322,7 +322,7 @@ ImmaturePointStatus ImmaturePoint::traceOn(FrameHessian* frame,const Mat33f &hos
 		}
 
 		// 每次走dx/dist对应大小
-		ptx+=dx; 
+		ptx+=dx; // dx是一个小步长
 		pty+=dy;
 	}
 
@@ -363,7 +363,7 @@ ImmaturePointStatus ImmaturePoint::traceOn(FrameHessian* frame,const Mat33f &hos
 		}
 
 
-		if(energy > bestEnergy)
+		if(energy > bestEnergy) // 如果能量(残差)变大，说明优化的方向不对，减小步长
 		{
 			gnStepsBad++;
 
@@ -376,7 +376,7 @@ ImmaturePointStatus ImmaturePoint::traceOn(FrameHessian* frame,const Mat33f &hos
 						it, energy, H, b, stepBack,
 						uBak, vBak, bestU, bestV);
 		}
-		else
+		else // 如果能量(残差)变小，说明优化的方向不对，减小步长
 		{
 			gnStepsGood++;
 
@@ -432,8 +432,9 @@ ImmaturePointStatus ImmaturePoint::traceOn(FrameHessian* frame,const Mat33f &hos
 	//! u = (pr[0] + Kt[0]*idepth) / (pr[2] + Kt[2]*idepth) ==> idepth = (u*pr[2] - pr[0]) / (Kt[0] - u*Kt[2])
 	//! v = (pr[1] + Kt[1]*idepth) / (pr[2] + Kt[2]*idepth) ==> idepth = (v*pr[2] - pr[1]) / (Kt[1] - v*Kt[2])
 	//* 取误差最大的
-	if(dx*dx>dy*dy)
-	{
+	if(dx*dx>dy*dy) // dx是一个小步长
+	{	// pr 是 uv经过了hostToFrame_KRKi投影之后得到的新的坐标点
+		// errorInPixel 是判断极线搜索方向和梯度方向的变量，大说明极线搜索方向和梯度方向垂直, 这时误差会很大, 视为bad
 		idepth_min = (pr[2]*(bestU-errorInPixel*dx) - pr[0]) / (hostToFrame_Kt[0] - hostToFrame_Kt[2]*(bestU-errorInPixel*dx));
 		idepth_max = (pr[2]*(bestU+errorInPixel*dx) - pr[0]) / (hostToFrame_Kt[0] - hostToFrame_Kt[2]*(bestU+errorInPixel*dx));
 	}
