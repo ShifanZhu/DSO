@@ -519,7 +519,7 @@ void FullSystem::traceNewCoarse(FrameHessian* fh)
 	{
 		// 预计算的, 位姿状态增量更新到位姿上
 		SE3 hostToNew = fh->PRE_worldToCam * host->PRE_camToWorld; // host帧到最新帧的位姿
-		Mat33f KRKi = K * hostToNew.rotationMatrix().cast<float>() * K.inverse();
+		Mat33f KRKi = K * hostToNew.rotationMatrix().cast<float>() * K.inverse(); // host到最新帧的像素坐标系之间的坐标变换
 		Vec3f Kt = K * hostToNew.translation().cast<float>();
 
 		Vec2f aff = AffLight::fromToVecExposure(host->ab_exposure, fh->ab_exposure, host->aff_g2l(), fh->aff_g2l()).cast<float>();

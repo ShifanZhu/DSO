@@ -106,6 +106,7 @@ void FullSystem::flagFramesForMarginalization(FrameHessian* newFH)
 	}
 
 	// marginalize one.
+	// setting_maxFrames 的值是7，是 max frames in window.
 	if((int)frameHessians.size()-flagged >= setting_maxFrames)
 	{
 		double smallestScore = 1;
@@ -128,7 +129,7 @@ void FullSystem::flagFramesForMarginalization(FrameHessian* newFH)
 			}
 			//* 有负号, 与最新帧距离占所有目标帧最大的被边缘化掉, 离得最远的, 
 			// 论文有提到, 启发式的良好的3D空间分布, 关键帧更接近
-			distScore *= -sqrtf(fh->targetPrecalc.back().distanceLL); 
+			distScore *= -sqrtf(fh->targetPrecalc.back().distanceLL); // distanceLL是两帧间距离
 
 
 			if(distScore < smallestScore)

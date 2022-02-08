@@ -112,9 +112,9 @@ ImmaturePointStatus ImmaturePoint::traceOn(FrameHessian* frame,const Mat33f &hos
 	// ============== project min and max. return if one of them is OOB ===================
 //[ ***step 1*** ] 计算出来搜索的上下限, 对应idepth_max, idepth_min
 	// （1）利用idepth_min计算出未成熟点在当前帧的投影位置，得到（uMin，vMin），对投影位置进行判断，不满足条件的设置ImmaturePointStatus::IPS_OOB;
-	// u v 是host里的像素坐标
-	Vec3f pr = hostToFrame_KRKi * Vec3f(u,v, 1);
-	Vec3f ptpMin = pr + hostToFrame_Kt*idepth_min; // idepth_min 是逆深度范围的最小值
+	// u v 是host里的像素坐标， hostToFrame_KRKi 是 host到最新帧的像素坐标系之间的坐标变换
+	Vec3f pr = hostToFrame_KRKi * Vec3f(u,v, 1); // 投影到最新帧的像素坐标系的值
+	Vec3f ptpMin = pr + hostToFrame_Kt*idepth_min; // idepth_min 是逆深度范围的最小值，相当于逆深度最小的时候host里的像素坐标投影到最新帧的像素坐标系的值
 	float uMin = ptpMin[0] / ptpMin[2];
 	float vMin = ptpMin[1] / ptpMin[2];
 
@@ -136,7 +136,7 @@ ImmaturePointStatus ImmaturePoint::traceOn(FrameHessian* frame,const Mat33f &hos
 	// 默认没有定义 idepth_max
 	if(std::isfinite(idepth_max))
 	{
-		ptpMax = pr + hostToFrame_Kt*idepth_max; // idepth_max 是逆深度范围的最大值
+		ptpMax = pr + hostToFrame_Kt*idepth_max; // idepth_max 是逆深度范围的最大值，相当于逆深度最大的时候host里的像素坐标投影到最新帧的像素坐标系的值
 		uMax = ptpMax[0] / ptpMax[2];
 		vMax = ptpMax[1] / ptpMax[2];
 
@@ -152,7 +152,7 @@ ImmaturePointStatus ImmaturePoint::traceOn(FrameHessian* frame,const Mat33f &hos
 
 
 		// ============== check their distance. everything below 2px is OK (-> skip). ===================
-		dist = (uMin-uMax)*(uMin-uMax) + (vMin-vMax)*(vMin-vMax); // distance in pixel coordinate
+		dist = (uMin-uMax)*(uMin-uMax) + (vMin-vMax)*(vMin-vMax); // distance in pixel coordinate // 像素坐标系下逆深度最大和最小时候的xy的距离平方和
 		dist = sqrtf(dist);
 		//* 搜索的范围太小
 		if(dist < setting_trace_slackInterval) // if pixel-interval is smaller than this, leave it be. 不管它
@@ -179,14 +179,14 @@ ImmaturePointStatus ImmaturePoint::traceOn(FrameHessian* frame,const Mat33f &hos
 		uMax = ptpMax[0] / ptpMax[2];
 		vMax = ptpMax[1] / ptpMax[2];
 
-		// direction.
+		// direction. 此处的direction是逆深度最大和最小的时候host里的像素坐标投影到最新帧的像素坐标系的值之间的方向
 		float dx = uMax-uMin;
 		float dy = vMax-vMin;
-		float d = 1.0f / sqrtf(dx*dx+dy*dy);
+		float d = 1.0f / sqrtf(dx*dx+dy*dy); // 1/distance 作为一步的长度
 
 		//* 根据比例得到最大值
 		// set to [setting_maxPixSearch].
-		uMax = uMin + dist*dx*d;
+		uMax = uMin + dist*dx*d; // uMin + maxPixSearch*(uMax-uMin)*1.0f / sqrtf(dx*dx+dy*dy)
 		vMax = vMin + dist*dy*d;
 
 		// may still be out!
@@ -322,7 +322,7 @@ ImmaturePointStatus ImmaturePoint::traceOn(FrameHessian* frame,const Mat33f &hos
 		}
 
 		// 每次走dx/dist对应大小
-		ptx+=dx; // dx是一个小步长
+		ptx+=dx; // dx是一个小步长，之前有dx /= dist
 		pty+=dy;
 	}
 
@@ -376,7 +376,7 @@ ImmaturePointStatus ImmaturePoint::traceOn(FrameHessian* frame,const Mat33f &hos
 						it, energy, H, b, stepBack,
 						uBak, vBak, bestU, bestV);
 		}
-		else // 如果能量(残差)变小，说明优化的方向不对，减小步长
+		else // 如果能量(残差)变小，说明优化的方向正确
 		{
 			gnStepsGood++;
 
