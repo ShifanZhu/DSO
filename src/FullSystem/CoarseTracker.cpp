@@ -425,11 +425,11 @@ Vec6 CoarseTracker::calcRes(int lvl, const SE3 &refToNew, AffLight aff_g2l, floa
 	}
 	
 	//* 投影在ref帧上的点
-	int nl = pc_n[lvl];
+	int nl = pc_n[lvl]; // 每层上点的个数
 	float* lpc_u = pc_u[lvl];
 	float* lpc_v = pc_v[lvl];
 	float* lpc_idepth = pc_idepth[lvl];
-	float* lpc_color = pc_color[lvl];
+	float* lpc_color = pc_color[lvl]; // 每层上点的颜色值
 
 
 	for(int i=0;i<nl;i++)

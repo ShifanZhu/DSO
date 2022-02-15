@@ -653,7 +653,7 @@ float FullSystem::optimize(int mnumOptIts)
 
 	debugPlotTracking();
 
-	//* 返回平均误差rmse
+	//* 返回平均误差rmse:
 	return sqrtf((float)(lastEnergy[0] / (patternNum*ef->resInA)));
 
 }
