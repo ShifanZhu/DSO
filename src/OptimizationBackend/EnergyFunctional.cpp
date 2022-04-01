@@ -62,6 +62,7 @@ void EnergyFunctional::setAdjointsF(CalibHessian* Hcalib)
 			FrameHessian* host = frames[h]->data;
 			FrameHessian* target = frames[t]->data;
 
+			// 计算 T_{th}=T_{tw}*T_{hw}^{-1} ，这里给定的是从世界坐标系到相机坐标系的变换
 			SE3 hostToTarget = target->get_worldToCam_evalPT() * host->get_worldToCam_evalPT().inverse();
 
 			Mat88 AH = Mat88::Identity();
@@ -477,7 +478,8 @@ EFFrame* EnergyFunctional::insertFrame(FrameHessian* fh, CalibHessian* Hcalib)
 	// CPARS是相机内参维数，等于4
 	assert(HM.cols() == 8*nFrames+CPARS-8);  // 边缘化掉一帧, 缺8个
 	// 一个帧8个参数 + 相机内参
-	bM.conservativeResize(8*nFrames+CPARS);
+	//这里应该是初始化两个矩阵用于边缘化，8包括6自由度位姿、2个光度变换参数，另外CPARS=4表示4个相机内参
+	bM.conservativeResize(8*nFrames+CPARS); //调整矩阵大小
 	HM.conservativeResize(8*nFrames+CPARS,8*nFrames+CPARS);
 	// 新帧的块为0
 	bM.tail<8>().setZero();

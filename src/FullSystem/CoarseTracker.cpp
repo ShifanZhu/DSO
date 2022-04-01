@@ -150,6 +150,8 @@ void CoarseTracker::makeCoarseDepthL0(std::vector<FrameHessian*> frameHessians)
 		{
 			// 点的上一次残差正常
 			//* 优化之后上一次不好的置为0，用来指示，而点是没有删除的，残差删除了
+			// 类型为： std::pair<PointFrameResidual*, ResState> lastResiduals[2]; 	
+			// contains information about residuals to the last two (!) frames. ([0] = latest, [1] = the one before).
 			if(ph->lastResiduals[0].first != 0 && ph->lastResiduals[0].second == ResState::IN)
 			{
 				PointFrameResidual* r = ph->lastResiduals[0].first;
@@ -157,10 +159,10 @@ void CoarseTracker::makeCoarseDepthL0(std::vector<FrameHessian*> frameHessians)
 				int u = r->centerProjectedTo[0] + 0.5f;  // 四舍五入
 				int v = r->centerProjectedTo[1] + 0.5f;
 				float new_idepth = r->centerProjectedTo[2];
-				float weight = sqrtf(1e-3 / (ph->efPoint->HdiF+1e-12)); // 协方差逆做权重
+				float weight = sqrtf(1e-3 / (ph->efPoint->HdiF+1e-12)); // 协方差逆做权重, HdiF是 逆深度hessian的逆, 协方差
 
-				idepth[0][u+w[0]*v] += new_idepth *weight; // 加权后的
-				weightSums[0][u+w[0]*v] += weight;
+				idepth[0][u+w[0]*v] += new_idepth *weight; // 当前idx的加权后的逆深度
+				weightSums[0][u+w[0]*v] += weight; // 当前idx的权重求和
 			}
 		}
 	}
@@ -182,10 +184,10 @@ void CoarseTracker::makeCoarseDepthL0(std::vector<FrameHessian*> frameHessians)
 			{
 				int bidx = 2*x   + 2*y*wlm1;
 				//? 为什么不除以4   答: 后面除以权重的和了 nice!
-				idepth_l[x + y*wl] = 		idepth_lm[bidx] +
-											idepth_lm[bidx+1] +
-											idepth_lm[bidx+wlm1] +
-											idepth_lm[bidx+wlm1+1];
+				idepth_l[x + y*wl] = 		idepth_lm[bidx] + // 下一层当前idx处的逆深度
+											idepth_lm[bidx+1] + // 下一层当前idx处右边的逆深度
+											idepth_lm[bidx+wlm1] + // 下一层当前idx处下边的逆深度
+											idepth_lm[bidx+wlm1+1]; // 下一层当前idx处右下角的逆深度
 
 				weightSums_l[x + y*wl] = 	weightSums_lm[bidx] +
 											weightSums_lm[bidx+1] +
@@ -276,13 +278,13 @@ void CoarseTracker::makeCoarseDepthL0(std::vector<FrameHessian*> frameHessians)
 			{
 				int i = x+y*wl;
 
-				if(weightSumsl[i] > 0) // 有值的
+				if(weightSumsl[i] > 0) // 有值的 （点的上一次残差正常weightSumsl会有值）
 				{
 					idepthl[i] /= weightSumsl[i];
 					lpc_u[lpc_n] = x;
 					lpc_v[lpc_n] = y;
 					lpc_idepth[lpc_n] = idepthl[i];
-					lpc_color[lpc_n] = dIRefl[i][0];
+					lpc_color[lpc_n] = dIRefl[i][0]; // 表示图像金字塔第0层，i位置处的像素的像素灰度值;
 
 
 
@@ -440,11 +442,13 @@ Vec6 CoarseTracker::calcRes(int lvl, const SE3 &refToNew, AffLight aff_g2l, floa
 		
 		//! 通过使用refToNew，将点从ref上投影到当前帧上
 		Vec3f pt = RKi * Vec3f(x, y, 1) + t*id;
-		float u = pt[0] / pt[2]; // 归一化坐标
+		float u = pt[0] / pt[2]; // 归一化坐标 // u, v is -nan TODO bug, solved, because timestamp from image doesnt change
 		float v = pt[1] / pt[2];
 		float Ku = fxl * u + cxl; // 像素坐标
 		float Kv = fyl * v + cyl;
 		float new_idepth = id/pt[2]; // 当前帧上的深度
+		// std::cout << "fxl fyl u v cxl cyl = " << fxl << " " << fyl << " " << u << " " << v << " " << cxl << " " << cyl << std::endl;
+		// output is fxl fyl u v cxl cyl = 192.2563018798828125 218.637176513671875 -nan -nan 172.2683563232421875 114.4041671752929688
 
 		if(lvl==0 && i%32==0)  //* 第0层 每隔32个点 TODO 为什么每隔32个点？应该是为了加速
 		{
@@ -484,7 +488,8 @@ Vec6 CoarseTracker::calcRes(int lvl, const SE3 &refToNew, AffLight aff_g2l, floa
 		}
 		
 		//* 图像边沿, 深度为负 则跳过
-		if(!(Ku > 2 && Kv > 2 && Ku < wl-3 && Kv < hl-3 && new_idepth > 0)) continue;
+		if(!(Ku > 2 && Kv > 2 && Ku < wl-3 && Kv < hl-3 && new_idepth > 0)) continue; // TODO BUG Ku and Kv is nan!!
+															// solved, because timestamp from image doesnt change
 
 
 		// 计算残差
@@ -590,7 +595,7 @@ bool CoarseTracker::trackNewestCoarse(
 
 	assert(coarsestLvl < 5 && coarsestLvl < pyrLevelsUsed);
 
-	lastResiduals.setConstant(NAN);
+	lastResiduals.setConstant(NAN); // lastResidual的值已经赋给achieved了，所以此处设置为NAN
 	lastFlowIndicators.setConstant(1000);
 
 
@@ -752,6 +757,7 @@ bool CoarseTracker::trackNewestCoarse(
 		}
 //[ ***step 3*** ] 记录上一次残差, 光流指示, 如果调整过阈值则重新计算这一层
 		// set last residual for that level, as well as flow indicators.
+		// 经过当前的try，以及在try附近应用HJb算出来的increment后的最优的值，记作last residual
 		lastResiduals[lvl] = sqrtf((float)(resOld[0] / resOld[1]));  // 上一次的残差均值，其实是最新的accept之后的残差均值
 		lastFlowIndicators = resOld.segment<3>(2);		//
 		if(lastResiduals[lvl] > 1.5*minResForAbort[lvl]) return false;  //! 如果算出来大于上次算出来的最好的残差的1.5倍就直接放弃
@@ -867,16 +873,16 @@ void CoarseTracker::debugPlotIDepthMap(float* minID_pt, float* maxID_pt, std::ve
 				float sid=0, nid=0;
 				float* bp = idepth[lvl]+idx;
 
-				if(bp[0] > 0) {sid+=bp[0]; nid++;}
-				if(bp[1] > 0) {sid+=bp[1]; nid++;}
-				if(bp[-1] > 0) {sid+=bp[-1]; nid++;}
-				if(bp[wl] > 0) {sid+=bp[wl]; nid++;}
-				if(bp[-wl] > 0) {sid+=bp[-wl]; nid++;}
+				if(bp[0] > 0) {sid+=bp[0]; nid++;} // 当前idx
+				if(bp[1] > 0) {sid+=bp[1]; nid++;} // 右边
+				if(bp[-1] > 0) {sid+=bp[-1]; nid++;} // 左边
+				if(bp[wl] > 0) {sid+=bp[wl]; nid++;} // 下边
+				if(bp[-wl] > 0) {sid+=bp[-wl]; nid++;} // 上边
 
-				if(bp[0] > 0 || nid >= 3)
+				if(bp[0] > 0 || nid >= 3) // 当前点有逆深度或者周围至少有三个点有逆深度
 				{
 					float id = ((sid / nid)-minID) / ((maxID-minID));
-					mf.setPixelCirc(x,y,makeJet3B(id));
+					mf.setPixelCirc(x,y,makeJet3B(id)); // 左下角的彩色点
 					//mf.at(idx) = makeJet3B(id);
 				}
 			}
