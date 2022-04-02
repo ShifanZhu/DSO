@@ -412,12 +412,12 @@ Vec4 FullSystem::trackNewCoarse(FrameHessian* fh)
 					i,
 					i, pyrLevelsUsed-1,
 					aff_g2l_this.a,aff_g2l_this.b,
-					achievedRes[0],
+					achievedRes[0], // 我们已经达到的residual
 					achievedRes[1],
 					achievedRes[2],
 					achievedRes[3],
 					achievedRes[4],
-					coarseTracker->lastResiduals[0],
+					coarseTracker->lastResiduals[0], // 这其实是current residual，当前得到的最好的residual
 					coarseTracker->lastResiduals[1],
 					coarseTracker->lastResiduals[2],
 					coarseTracker->lastResiduals[3],
@@ -1232,6 +1232,7 @@ void FullSystem::makeKeyFrame( FrameHessian* fh)
 			r->setState(ResState::IN);
 			ph->residuals.push_back(r);
 			ef->insertResidual(r);
+			// ph->lastResiduals contains information about residuals to the last two (!) frames. ([0] = latest, [1] = the one before).
 			ph->lastResiduals[1] = ph->lastResiduals[0]; // 设置上上个残差
 			ph->lastResiduals[0] = std::pair<PointFrameResidual*, ResState>(r, ResState::IN); // 当前的设置为上一个
 			numFwdResAdde+=1;
@@ -1394,6 +1395,7 @@ void FullSystem::initializeFromInitializer(FrameHessian* newFrame)
 	frameHessians.push_back(firstFrame);  	// 地图内关键帧容器
 	firstFrame->frameID = allKeyFramesHistory.size();  	// 所有历史关键帧id
 	allKeyFramesHistory.push_back(firstFrame->shell); 	// 所有历史关键帧
+	// 将初始化结果coarseInitializer保存到关键帧容器frameHessians中后，程序调用insertFrame()
 	// 第一帧加入优化：
 	// 利用ef->insertFrame(firstFrame, &Hcalib)，将第一帧加入到优化后端energyFunction
 	// Hcalib 是相机响应函数

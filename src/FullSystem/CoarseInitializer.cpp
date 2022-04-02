@@ -536,7 +536,7 @@ Vec3f CoarseInitializer::calcResAndGS(
 			float dxInterp = hw*hitColor[1]*fxl; // 权重*x方向梯度*fx
 			float dyInterp = hw*hitColor[2]*fyl;
 			//* 残差对 j(新状态) 位姿求导, 
-			// 公式41：光度误差对se(3)六个量的导数
+			// 公式41：光度误差对se(3)六个量的导数 Jx21
 			dp0[idx] = new_idepth*dxInterp; //! dpi/pz' * dxfx
 			dp1[idx] = new_idepth*dyInterp; //! dpi/pz' * dyfy
 			dp2[idx] = -new_idepth*(u*dxInterp + v*dyInterp); //! -dpi/pz' * (px'/pz'*dxfx + py'/pz'*dyfy)
@@ -642,13 +642,13 @@ Vec3f CoarseInitializer::calcResAndGS(
 		{
 			// TODO 和之前的不一样的地方在于这里更新energy[0]，不过这里为啥又更新E了呢？难道不应该是更新 EAlpha 吗？bug
 			// energy[0]残差的平方, energy[1]正则化项(逆深度减一的平方)，注意此处的energy和point->energy的区别
-			E.updateSingle((float)(point->energy[1])); //! 又是故意这样写的，没用的代码。  TODO 此处E.finish()已经被调用，所以不会再更新了
+			E.updateSingle((float)(point->energy[1])); //! 又是故意这样写的，没用的代码。  TODO 此处E.finish()已经被调用，所以不会再更新了。此处应该是EAlpha
 		}
 		else
 		{
 			// 最开始初始化都是成1
 			point->energy_new[1] = (point->idepth_new-1)*(point->idepth_new-1);  //? 什么原理?
-			E.updateSingle((float)(point->energy_new[1])); 
+			E.updateSingle((float)(point->energy_new[1])); // TODO 此处应该是EAlpha
 		}
 	}
 	EAlpha.finish(); //! 只是计算位移是否足够大
@@ -661,7 +661,7 @@ Vec3f CoarseInitializer::calcResAndGS(
 	// compute alpha opt.
 	float alphaOpt;
 	if(alphaEnergy > alphaK*npts) // 平移大于一定值，150*150/2.5/2.5算下来大概xyz要各平移0.01米，或者单独平移0.02米
-								  // 从后边可以看出，当满足这个条件时，snapped = true，trackFrame()才能返回true
+								  // 从后边可以看出，当满足这个条件时， snapped = true，trackFrame()才能返回true
 	{
 		alphaOpt = 0;
 		alphaEnergy = alphaK*npts; // 2.5*2.5*npts
@@ -822,7 +822,7 @@ void CoarseInitializer::optReg(int lvl)
 		if(nnn > 2)
 		{
 			std::nth_element(idnn,idnn+nnn/2,idnn+nnn); // 获得中位数
-			// regWeight 用来对逆深度的加权值, 0.8 // TODO 这个0.8有道理么？
+			// regWeight 用来对逆深度的加权值, 0.8 // TODO 这个0.8有道理么？应该是为了更相信中位数的深度
 			point->iR = (1-regWeight)*point->idepth + regWeight*idnn[nnn/2];
 		}
 	}
