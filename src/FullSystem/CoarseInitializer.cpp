@@ -127,8 +127,8 @@ bool CoarseInitializer::trackFrame(FrameHessian* newFrameHessian, std::vector<IO
 			for(int i=0;i<npts;i++)
 			{
 				// 初始化每一个特征点的逆深度的期望值,该点在新的一帧(当前帧)上的逆深度,逆深度的Hessian, 即协方差
-				ptsl[i].iR = 1; // 每一个特征点的逆深度
-				ptsl[i].idepth_new = 1;
+				ptsl[i].iR = 1; // 每一个特征点的逆深度的期望值初始化为1
+				ptsl[i].idepth_new = 1; // 该点对应参考帧的逆深度的新值
 				ptsl[i].lastHessian = 0; // 逆深度的Hessian, 即协方差, dd*dd
 			}
 		}
@@ -163,7 +163,7 @@ bool CoarseInitializer::trackFrame(FrameHessian* newFrameHessian, std::vector<IO
 		// 然后利用resOld = calcResAndGS()计算当前的残差energy和优化的H矩阵和b以及Hsc，bsc。其中的"sc"是指 Schur Complement
 		// applyStep(lvl);应用计算的相关信息。
 		Mat88f H,Hsc; Vec8f b,bsc;
-		resetPoints(lvl); // 这里对顶层进行初始化!
+		resetPoints(lvl); // 这里对顶层进行初始化!然后逐层下降
 //[ ***step 4*** ] 迭代之前计算能量, Hessian等
 		// calcResAndGS()是该函数优化部分的核心
 		// H b: 对应"Gauss Newton 方程可以进一步写成"下边的公式，此处应该只更新了大 H 矩阵右下角 Jx21*Jx21 ，和　b 的下边　Jx21 * r21
@@ -1093,7 +1093,7 @@ void CoarseInitializer::resetPoints(int lvl)
 				sn += 1;
 			}
 
-			if(sn > 0)
+			if(sn > 0) // 如果周围点像素梯度达到阈值，并且是好点
 			{
 				// 将当前坏点变好，对逆深度期望值、逆深度、新逆深度取周围点的平均
 				pts[i].isGood=true;
