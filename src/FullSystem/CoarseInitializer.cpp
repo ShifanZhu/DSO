@@ -1079,9 +1079,10 @@ void CoarseInitializer::resetPoints(int lvl)
 	{
 		// 重置
 		pts[i].energy.setZero();
-		pts[i].idepth_new = pts[i].idepth;
+		pts[i].idepth_new = pts[i].idepth; // TODO check where set value to idepth
 
 		// 如果是最顶层, 并且isGood是false(当前点的像素梯度没达到阈值)，则使用周围点平均值来重置
+		// 如果不是最顶层，只执行上边两步
 		if(lvl==pyrLevelsUsed-1 && !pts[i].isGood)
 		{
 			float snd=0, sn=0;
