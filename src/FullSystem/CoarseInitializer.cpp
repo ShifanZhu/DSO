@@ -106,14 +106,17 @@ bool CoarseInitializer::trackFrame(FrameHessian* newFrameHessian, std::vector<IO
 
 
 	//? 调参
+	// 这个是位移的阈值，如果平移的总偏移量超过2.5 / 150 就认为此帧是snapped为true的帧了.
 	alphaK = 2.5*2.5;//*freeDebugParam1*freeDebugParam1;
 	alphaW = 150*150;//*freeDebugParam2*freeDebugParam2;
-	regWeight = 0.8;//*freeDebugParam4;
+	regWeight = 0.8;//*freeDebugParam4; // 近邻点对当前点逆深度的影响权重
 	couplingWeight = 1;//*freeDebugParam5;
 
 //[ ***step 2*** ] 初始化每个点逆深度为1, 初始化光度参数, 位姿SE3
 	// 将当前帧赋给newFrame为第一次跟踪，并为第一次跟踪做准备，（此时snapped为false，上一篇博客有提到）将两帧相对位姿的平移部分置0，
 	// 并且给第一帧选取的像素点相关信息设置初值。
+	//对points点中的几个数据初始化过程
+	//只要出现过足够大的位移后 就不再对其初始化，直接拿着里面的值去连续优化5次
 	if(!snapped) //! snapped应该指的是位移足够大了，不够大就重新优化
 	{
 		// 初始化
@@ -128,7 +131,7 @@ bool CoarseInitializer::trackFrame(FrameHessian* newFrameHessian, std::vector<IO
 			{
 				// 初始化每一个特征点的逆深度的期望值,该点在新的一帧(当前帧)上的逆深度,逆深度的Hessian, 即协方差
 				ptsl[i].iR = 1; // 每一个特征点的逆深度的期望值初始化为1
-				ptsl[i].idepth_new = 1; // 该点对应参考帧的逆深度的新值
+				ptsl[i].idepth_new = 1; // 该点对应参考帧的逆深度的新值，_new的含义是指刚计算的新值，如果确定该新值更好之后才会apply到idepth
 				ptsl[i].lastHessian = 0; // 逆深度的Hessian, 即协方差, dd*dd
 			}
 		}
@@ -140,6 +143,8 @@ bool CoarseInitializer::trackFrame(FrameHessian* newFrameHessian, std::vector<IO
 	AffLight refToNew_aff_current = thisToNext_aff; // 参考帧与当前帧之间光度系数
 
 	// 如果都有仿射系数, 则估计一个初值
+	//firstFrame 是第一帧图像数据信息
+	//如果无光度标定那么曝光时间ab_exposure就是1.那么下面这个就是 a= 0 b = 0
 	if(firstFrame->ab_exposure>0 && newFrame->ab_exposure>0)
 		refToNew_aff_current = AffLight(logf(newFrame->ab_exposure /  firstFrame->ab_exposure),0); // coarse approximation.
 
@@ -163,7 +168,7 @@ bool CoarseInitializer::trackFrame(FrameHessian* newFrameHessian, std::vector<IO
 		// 然后利用resOld = calcResAndGS()计算当前的残差energy和优化的H矩阵和b以及Hsc，bsc。其中的"sc"是指 Schur Complement
 		// applyStep(lvl);应用计算的相关信息。
 		Mat88f H,Hsc; Vec8f b,bsc;
-		resetPoints(lvl); // 这里对顶层进行初始化!然后逐层下降
+		resetPoints(lvl); // 这里对顶层进行初始化!如果不是顶层则只把pts[i].energy置零和pts[i].idepth_new置为idepth
 //[ ***step 4*** ] 迭代之前计算能量, Hessian等
 		// calcResAndGS()是该函数优化部分的核心
 		// H b: 对应"Gauss Newton 方程可以进一步写成"下边的公式，此处应该只更新了大 H 矩阵右下角 Jx21*Jx21 ，和　b 的下边　Jx21 * r21
@@ -485,7 +490,7 @@ Vec3f CoarseInitializer::calcResAndGS(
 			float Ku = fxl * u + cxl;
 			float Kv = fyl * v + cyl;
 			// dpi/pz' 
-			float new_idepth = point->idepth_new/pt[2]; // 新一帧上的逆深度
+			float new_idepth = point->idepth_new/pt[2]; // 新一帧上的逆深度。这个对吗
 
 			// 落在边缘附近，深度小于0, 不好 false，pattern8个点中的一个不好，则直接break
 			if(!(Ku > 1 && Kv > 1 && Ku < wl-2 && Kv < hl-2 && new_idepth > 0))
@@ -504,6 +509,7 @@ Vec3f CoarseInitializer::calcResAndGS(
 			// colorRef[idx][1]  表示当前层lvl，idx位置处的像素的x方向的梯度
 			// colorRef[idx][2]  表示当前层lvl，idx位置处的像素的y方向的梯度
 			//float rlR = colorRef[point->u+dx + (point->v+dy) * wl][0];
+			//对第一帧图像只算0通道灰度图的双线性插值 没算梯度的插值
 			float rlR = getInterpolatedElement31(colorRef, point->u+dx, point->v+dy, wl);
 
 			// 参考帧和当前帧的像素值无穷, false，pattern8个点中的一个不好，则直接break
@@ -527,9 +533,9 @@ Vec3f CoarseInitializer::calcResAndGS(
 
 			// 公式32：像素坐标 Pj 对 逆深度 di 求导，t 是平移向量
 			//! 1/Pz * (tx - u*tz), u = px/pz
-			float dxdd = (t[0]-t[2]*u)/pt[2];
+			float dxdd = (t[0]-t[2]*u)/pt[2]/point->idepth; // Todo bug 此处应该加上"/point->idepth"吧？
 			//! 1/Pz * (ty - v*tz), v = py/pz
-			float dydd = (t[1]-t[2]*v)/pt[2];
+			float dydd = (t[1]-t[2]*v)/pt[2]/point->idepth;
 
 			if(hw < 1) hw = sqrtf(hw); //?? 为啥开根号, 答: 鲁棒核函数等价于加权最小二乘
 			//! dxfx, dyfy
@@ -554,6 +560,7 @@ Vec3f CoarseInitializer::calcResAndGS(
 			r[idx] = hw*residual; //! 乘了Huber权重后的残差 res
 
 			//* 像素误差对逆深度的导数，取模倒数
+			// 1 / (公式20的平方根) 公式20是像素坐标对逆深度求导
 			// 1 / (公式32*公式23)'平方根
 			float maxstep = 1.0f / Vec2f(dxdd*fxl, dydd*fyl).norm();  //? 为什么这么设置
 			if(maxstep < point->maxstep) point->maxstep = maxstep; // maxstep 是逆深度增加的最大步长
@@ -642,13 +649,13 @@ Vec3f CoarseInitializer::calcResAndGS(
 		{
 			// TODO 和之前的不一样的地方在于这里更新energy[0]，不过这里为啥又更新E了呢？难道不应该是更新 EAlpha 吗？bug
 			// energy[0]残差的平方, energy[1]正则化项(逆深度减一的平方)，注意此处的energy和point->energy的区别
-			E.updateSingle((float)(point->energy[1])); //! 又是故意这样写的，没用的代码。  TODO 此处E.finish()已经被调用，所以不会再更新了。此处应该是EAlpha
+			EAlpha.updateSingle((float)(point->energy[1])); //! 又是故意这样写的，没用的代码。  TODO 此处E.finish()已经被调用，所以不会再更新了。此处应该是EAlpha
 		}
 		else
 		{
 			// 最开始初始化都是成1
 			point->energy_new[1] = (point->idepth_new-1)*(point->idepth_new-1);  //? 什么原理?
-			E.updateSingle((float)(point->energy_new[1])); // TODO 此处应该是EAlpha
+			EAlpha.updateSingle((float)(point->energy_new[1])); // TODO 此处应该是EAlpha
 		}
 	}
 	EAlpha.finish(); //! 只是计算位移是否足够大
@@ -858,6 +865,7 @@ void CoarseInitializer::propagateUp(int srcLvl)
 		if(!point->isGood) continue;
 
 		Pnt* parent = ptst + point->parent;
+		//当前层的父节点的iR值重置一次 利用当前层点的逆深度来操作
 		parent->iR += point->iR * point->lastHessian; //! 均值*信息矩阵 ∑ (sigma*u)
 		parent->iRSumNum += point->lastHessian;  //! 新的信息矩阵 ∑ sigma
 	}
@@ -909,7 +917,7 @@ void CoarseInitializer::propagateDown(int srcLvl)
 		else // 当前点好，父点也好，则通过hessian给当前点和父点加权求得新的iR
 		{
 			// 通过hessian给point和parent加权求得新的iR
-			// iR可以看做是深度的值, 使用的高斯归一化积, Hessian是信息矩阵
+			// iR可以看做是深度的值, 使用的高斯归一化积, Hessian是信息矩阵，更相信当前点的权重
 			float newiR = (point->iR*point->lastHessian*2 + parent->iR*parent->lastHessian) / (point->lastHessian*2+parent->lastHessian);
 			point->iR = point->idepth = point->idepth_new = newiR;
 		}
@@ -945,6 +953,10 @@ void CoarseInitializer::makeGradients(Eigen::Vector3f** data)
 		}
 	}
 }
+
+// setFirst在第一帧数据中取点：setFirst(&Hcalib, fh)：每层采集密度不一样，取点策略：
+// 先将图像划分成32*32的块，计算每块的梯度均值作为选点的阈值makeHists(fh)，选点时，第一次选择先把图像分成d*d的块，然后选
+// 择梯度最大且大于阈值的点，如果第一次选择结束后选择的点数目未达要求，则分成2d*2d的块，以此类推
 
 // CoarseInitializer::setFirst，计算图像的每一层内参, 再针对不同层数选择大梯度像素, 第0层比较复杂1d, 2d, 4d大小block来选择3个层次的像素选取点，
 // 其它层则选出goodpoints, 作为后续第二帧匹配生成 pointHessians 和 immaturePoints 的候选点，这些点存储在 CoarseInitializer::points 中。
@@ -1079,8 +1091,7 @@ void CoarseInitializer::resetPoints(int lvl)
 	{
 		// 重置
 		pts[i].energy.setZero();
-		pts[i].idepth_new = pts[i].idepth; // TODO check where set value to idepth
-
+		pts[i].idepth_new = pts[i].idepth; // TODO check where set value to idepth. Ans: In setFirst, Pnt* pl = points[lvl];
 		// 如果是最顶层, 并且isGood是false(当前点的像素梯度没达到阈值)，则使用周围点平均值来重置
 		// 如果不是最顶层，只执行上边两步
 		if(lvl==pyrLevelsUsed-1 && !pts[i].isGood)

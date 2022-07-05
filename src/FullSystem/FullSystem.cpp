@@ -928,6 +928,9 @@ void FullSystem::addActiveFrame( ImageAndExposure* image, int id )
 	// 在 FullSystem::initializerFromInitializer 中为第一帧生成 pointHessians，一共2000个左右。随后将第7帧作为 KeyFrame 输入
 	// 到 FullSystem::deliverTrackedFrame，最终流入 FullSystem::makeKeyFrame。
 	// （FullSystem::deliverTrackedFrame 的作用就是实现多线程的数据输入。）
+	
+	// 对于除第一帧外的后帧，trackFrame(fh, outputWrapper)，直接法（two frame direct image alignment）只利用第一帧与当前帧的数据，用高斯牛顿法基于
+	// 最小化光测误差，求解或优化参数，优化之前，变换矩阵初始化为单位阵、点的逆深度初始化为1，在这个过程中，优化的初值都是没有实际意义的，优化的结果也是很不准确的
 	if(!initialized)
 	{
 		// use initializer!
@@ -943,6 +946,10 @@ void FullSystem::addActiveFrame( ImageAndExposure* image, int id )
 		// 对第一帧进行跟踪之后会返回ture，表示可以进行初始化操作。
 		// 前面几帧的处理都是为初始化做准备，一直到第8帧才达到满足进行初始化的条件（如果不出现意外的情况）
 		/// DSO 代码中 CoarseInitializer::trackFrame 目的是优化两帧（ref frame 和 new frame）之间的相对状态和 ref frame 中所有点的逆深度。
+
+		// 这个函数只有初始化用。初始化过程中最小化光度误差目的是确定第一帧每一个点的逆深度idepth（Jacobian 对应代码中的变量 dd）、第一帧和第二帧的相对位姿。
+		// 两帧之间的参数 用LM方法不断优化解高斯牛顿方程获得 参数包括：第一帧上特征点深度值， 第一帧到当前帧的位姿变换，仿射参数
+		// 变换一共N(特征点个数) + 8(位姿+ 仿射系数)个解
 		else if(coarseInitializer->trackFrame(fh, outputWrapper))	// if SNAPPED
 		{
 		//[ ***step 4.2*** ] 跟踪成功, 完成初始化
