@@ -107,7 +107,7 @@ void PixelSelector::makeHists(const FrameHessian* const fh)
 		{
 			float* map0 = mapmax0+32*x+32*y*w; // y行x列的格，此处的xy为大网格的index
 			int* hist0 = gradHist;// + 50*(x+y*w32);
-			memset(hist0,0,sizeof(int)*50); // 分成50格
+			memset(hist0,0,sizeof(int)*50); // size设置为50，设置最大的gradient为48
 
 			for(int j=0;j<32;j++) for(int i=0;i<32;i++)
 			{
@@ -117,7 +117,7 @@ void PixelSelector::makeHists(const FrameHessian* const fh)
 				// 注意此处梯度小的放在hist0这个数组的前边，所以下边 computeHistQuantil 函数取的是像素低的那一部分
 				int g = sqrtf(map0[i+j*w]); // 梯度平方和开根号 // max cout is about 70 & many 0s
 				if(g==0) continue;
-				if(g>48) g=48; //? 为啥是48这个数，因为一共分为了50格
+				if(g>48) g=48; //? 对于gradient大于48的按照48算
 				// 注意此处如果环境当中的纹理特征比较少，比如在纯白的墙面，g==0即没有灰色梯度的情况非常常见，此时hist0[1]的值非常大
 				hist0[g+1]++; // 1-49 存相应梯度个数
 				hist0[0]++;  // 所有的像素个数
