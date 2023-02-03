@@ -367,6 +367,7 @@ void CoarseTracker::calcGSSSE(int lvl, Mat88 &H_out, Vec8 &b_out, const SE3 &ref
 				_mm_load_ps(buf_warped_weight+i)); 		// huber权重
 	}
 
+	// Has H.setZero() in the finish() function
 	acc.finish();
 	H_out = acc.H.topLeftCorner<8,8>().cast<double>() * (1.0f/n);
 	b_out = acc.H.topRightCorner<8,1>().cast<double>() * (1.0f/n);
@@ -598,7 +599,6 @@ bool CoarseTracker::trackNewestCoarse(
 	lastResiduals.setConstant(NAN); // lastResidual的值已经赋给achieved了，所以此处设置为NAN
 	lastFlowIndicators.setConstant(1000);
 
-
 	newFrame = newFrameHessian;
 	int maxIterations[] = {10,20,50,50,50};  	// 不同层迭代的次数
 	float lambdaExtrapolationLimit = 0.001;
@@ -736,7 +736,7 @@ bool CoarseTracker::trackNewestCoarse(
 			//[ ***step 2.3*** ] 接受则求正规方程, 继续迭代, 优化到增量足够小
 			if(accept)
 			{
-				calcGSSSE(lvl, H, b, refToNew_new, aff_g2l_new);
+				calcGSSSE(lvl, H, b, refToNew_new, aff_g2l_new); // 计算新的H和b用于下一次迭代计算delta
 				resOld = resNew;
 				aff_g2l_current = aff_g2l_new;
 				refToNew_current = refToNew_new;

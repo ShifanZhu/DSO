@@ -221,15 +221,17 @@ bool CoarseInitializer::trackFrame(FrameHessian* newFrameHessian, std::vector<IO
 				inc.tail<2>().setZero();
 			}
 			// 通过上述计算的矩阵信息，进行迭代增量的求解。 inc 迭代增量表示相对位姿增量，相对仿射变换增量（8维）。求解增量会加入lambda，有点类似与LM的求解方法。
-			else　// 不固定光度系数，８个全部使用
+			else
+			{	// 不固定光度系数，８个全部使用
 				inc = - (wM * (Hl.ldlt().solve(bl)));	//=-H^-1 * b. 迭代增量的求解
+			}
 
 //[ ***step 5.3*** ] 更新状态, doStep中更新逆深度
 			SE3 refToNew_new = SE3::exp(inc.head<6>().cast<double>()) * refToNew_current;
 			AffLight refToNew_aff_new = refToNew_aff_current;
 			refToNew_aff_new.a += inc[6];
 			refToNew_aff_new.b += inc[7];
-			doStep(lvl, lambda, inc);　// 不判断是否OK就直接用了吗？此处应该只是do一下，如果残差变小才accept，才最终apply
+			doStep(lvl, lambda, inc); // 不判断是否OK就直接用了吗？此处应该只是do一下，如果残差变小才accept，才最终apply
 
 			// 利用doStep(lvl, lambda, inc);计算选取的像素点逆深度增量。
 			// 再计算并更新了所有增量之后，重新计算残差以及优化用到的矩阵信息。其中calcEC(lvl)计算像素点的逆深度energy。

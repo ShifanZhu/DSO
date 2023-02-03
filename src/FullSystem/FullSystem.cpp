@@ -365,7 +365,7 @@ Vec4 FullSystem::trackNewCoarse(FrameHessian* fh)
 			lastF_2_fh_tries.push_back(fh_2_slast.inverse() * lastF_2_slast * SE3(Sophus::Quaterniond(1,rotDelta,rotDelta,rotDelta), Vec3(0,0,0)));	// assume constant motion.
 		}
 
-		if(!slast->poseValid || !sprelast->poseValid || !lastF->shell->poseValid) // 有不和法的
+		if(!slast->poseValid || !sprelast->poseValid || !lastF->shell->poseValid) // 有invalid的，使用zero motion assumption
 		{
 			lastF_2_fh_tries.clear();
 			lastF_2_fh_tries.push_back(SE3());
