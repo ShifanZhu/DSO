@@ -692,6 +692,7 @@ bool CoarseTracker::trackNewestCoarse(
 
 			//? lambda太小的化, 就给增量一个因子, 啥原理????
 			float extrapFac = 1;
+			// Value of lambdaExtrapolationLimit is 0.001
 			if(lambda < lambdaExtrapolationLimit) extrapFac = sqrt(sqrt(lambdaExtrapolationLimit / lambda));
 			inc *= extrapFac;
 
@@ -740,11 +741,11 @@ bool CoarseTracker::trackNewestCoarse(
 				resOld = resNew;
 				aff_g2l_current = aff_g2l_new;
 				refToNew_current = refToNew_new;
-				lambda *= 0.5;
+				lambda *= 0.5; // 如果接收，减小步长
 			}
 			else
 			{
-				lambda *= 4;
+				lambda *= 4; // 如果不接受，增大步长
 				if(lambda < lambdaExtrapolationLimit) lambda = lambdaExtrapolationLimit;
 			}
 
