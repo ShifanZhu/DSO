@@ -514,7 +514,7 @@ void FullSystem::traceNewCoarse(FrameHessian* fh)
 	K(1,2) = Hcalib.cyl();
 
 	// 遍历关键帧
-	// 遍历frameHessians，遍历所有ImmaturePoint，(此时在第八帧上提取了点，生成了ImmaturePoint)利用函数traceOn进行跟踪（又称极线搜索）。
+	// 遍历frameHessians， 遍历所有ImmaturePoint，(此时在第八帧上提取了点，生成了ImmaturePoint)利用函数traceOn进行跟踪（又称极线搜索）。
 	for(FrameHessian* host : frameHessians)		// go through all active frames
 	{
 		// 预计算的, 位姿状态增量更新到位姿上
