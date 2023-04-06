@@ -61,10 +61,10 @@ CoarseTracker::CoarseTracker(int ww, int hh) : lastRef_aff_g2l(0,0)
 	// make coarse tracking templates.
 	for(int lvl=0; lvl<pyrLevelsUsed; lvl++)
 	{
-				int wl = ww>>lvl; // 向右移1位，缩小两倍，向右移三位，缩小八倍
+		int wl = ww>>lvl; // 向右移1位，缩小两倍，向右移三位，缩小八倍
         int hl = hh>>lvl;
 
-				// 分配对齐的内存
+		// 分配对齐的内存
         idepth[lvl] = allocAligned<4,float>(wl*hl, ptrToDelete);
         weightSums[lvl] = allocAligned<4,float>(wl*hl, ptrToDelete);
         weightSums_bak[lvl] = allocAligned<4,float>(wl*hl, ptrToDelete);

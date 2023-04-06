@@ -302,7 +302,7 @@ Vec4 FullSystem::trackNewCoarse(FrameHessian* fh)
 	// （2）设置参考帧对当前的位姿 lastF_2_fh_tries （这货是个vector），会进行一系列的
 	// 假设：利用匀速模型加一系列微小旋转，如果关键帧数量只有两帧，则设置相对位姿为单位阵。
 	std::vector<SE3,Eigen::aligned_allocator<SE3>> lastF_2_fh_tries;
-	printf("size: %d \n", lastF_2_fh_tries.size());
+	// printf("size: %d \n", lastF_2_fh_tries.size());
 	if(allFrameHistory.size() == 2)
 		for(unsigned int i=0;i<lastF_2_fh_tries.size();i++) lastF_2_fh_tries.push_back(SE3());  //? 这个size()不应该是0么
 	else
@@ -318,10 +318,10 @@ Vec4 FullSystem::trackNewCoarse(FrameHessian* fh)
 			aff_last_2_l = slast->aff_g2l;
 		}
 		SE3 fh_2_slast = slast_2_sprelast;// assumed to be the same as fh_2_slast. // 当前帧到上一帧 = 上一帧和大上一帧的
-		std::cout << "sprelast time = " << sprelast -> timestamp << std::endl;
-		std::cout << "slast time = " << slast -> timestamp << std::endl;
-		std::cout << "fh time = " << fh -> shell -> timestamp << std::endl;
-		std::cout << "lastF time = " << lastF -> shell -> timestamp << std::endl;
+		// std::cout << "sprelast time = " << sprelast -> timestamp << std::endl;
+		// std::cout << "slast time = " << slast -> timestamp << std::endl;
+		// std::cout << "fh time = " << fh -> shell -> timestamp << std::endl;
+		// std::cout << "lastF time = " << lastF -> shell -> timestamp << std::endl;
 
 		//! 尝试不同的运动
 		// get last delta-movement.
@@ -906,7 +906,7 @@ void FullSystem::addActiveFrame( ImageAndExposure* image, int id )
 	shell->aff_g2l = AffLight(0,0); // 光度仿射变换, 用来建模曝光时间
     shell->marginalizedAt = shell->id = allFrameHistory.size();
     shell->timestamp = image->timestamp;
-	std::cout << "img time = " << image->timestamp << std::endl;
+	// std::cout << "img time = " << image->timestamp << std::endl;
     shell->incoming_id = id;
 	fh->shell = shell;
 	// 加入到allFrameHistory (所有的历史帧)

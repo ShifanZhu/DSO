@@ -87,7 +87,8 @@ float setting_thOptIterations=1.2; // factor on break threshold for GN iteration
 
 
 /* Outlier Threshold on photometric energy */
-float setting_outlierTH = 102*102;					// higher -> less strict
+// float setting_outlierTH = 102*102;					// higher -> less strict
+float setting_outlierTH = 12*12;					// higher -> less strict
 float setting_outlierTHSumComponent = 50*50; 		// higher -> less strong gradient-based reweighting .
 
 
@@ -124,7 +125,7 @@ int setting_gammaWeightsPixelSelect = 1; // 1 = use original intensity for pixel
 
 
 
-float setting_huberTH = 9; // Huber Threshold   odified from 9 to 90
+float setting_huberTH = 9; // Huber Threshold   modified from 9 to 90
 
 
 
@@ -143,8 +144,8 @@ float setting_coarseCutoffTH = 20;
 
 // parameters controlling pixel selection
 float setting_minGradHistCut = 0.5;
-// float setting_minGradHistAdd = 7;
-float setting_minGradHistAdd = 1; // for event camera there are so many pixels that are 0 gradient so set this to 1
+float setting_minGradHistAdd = 7;
+// float setting_minGradHistAdd = 1; // for event camera there are so many pixels that are 0 gradient so set this to 1
 float setting_gradDownweightPerLevel = 0.75;
 bool  setting_selectDirectionDistribution = true;
 

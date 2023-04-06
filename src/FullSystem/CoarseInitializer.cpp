@@ -312,10 +312,10 @@ bool CoarseInitializer::trackFrame(FrameHessian* newFrameHessian, std::vector<IO
 
 	}
 
-	std::cout << "thisToNext.log =  " <<std::endl<< thisToNext.log() << std::endl;
-	std::cout << "refToNew_current.log =  " <<std::endl<< refToNew_current.log() << std::endl;
-	std::cout << "thisToNext_aff =  " <<std::endl<< thisToNext_aff.vec() << std::endl; // 0 0
-	std::cout << "refToNew_aff_current =  " <<std::endl<< refToNew_aff_current.vec() << std::endl; // 0 0
+	// std::cout << "thisToNext.log =  " <<std::endl<< thisToNext.log() << std::endl;
+	// std::cout << "refToNew_current.log =  " <<std::endl<< refToNew_current.log() << std::endl;
+	// std::cout << "thisToNext_aff =  " <<std::endl<< thisToNext_aff.vec() << std::endl; // 0 0
+	// std::cout << "refToNew_aff_current =  " <<std::endl<< refToNew_aff_current.vec() << std::endl; // 0 0
 //[ ***step 6*** ] 优化后赋值位姿, 从底层计算上层点的深度
 	// 在对所有层跟踪完成之后，得到最终优化结果： TODO 输出看一下为什么失败
 	thisToNext = refToNew_current; // 参考帧与当前帧之间位姿
@@ -424,7 +424,7 @@ Vec3f CoarseInitializer::calcResAndGS(
 	// 首先计算RKi t r2new_aff ，将第一帧图像选取的像素点投影到当前帧，并且投影时要根据像素点属于哪层金字塔选用对应层的金字塔内参，同时会删除
 	// 投影位置不好的点。
 	Mat33f RKi = (refToNew.rotationMatrix() * Ki[lvl]).cast<float>(); // R*K_inv
-	std::cout << "refToNew matrix = " << std::endl << refToNew.rotationMatrix() << std::endl;
+	// std::cout << "refToNew matrix = " << std::endl << refToNew.rotationMatrix() << std::endl;
 	Vec3f t = refToNew.translation().cast<float>(); // 平移
 	Eigen::Vector2f r2new_aff = Eigen::Vector2f(exp(refToNew_aff.a), refToNew_aff.b); // 光度参数
 
@@ -534,10 +534,13 @@ Vec3f CoarseInitializer::calcResAndGS(
 			// 关于优化变量的雅克比矩阵可以通过参考博客推导，然后可以构建雅克比矩阵，在构建时采用了SSE指令集加速计算。
 
 			// 公式32：像素坐标 Pj 对 逆深度 di 求导，t 是平移向量
-			//! 1/Pz * (tx - u*tz), u = px/pz
-			float dxdd = (t[0]-t[2]*u)/pt[2]/point->idepth; // Todo bug 此处应该加上"/point->idepth"吧？
-			//! 1/Pz * (ty - v*tz), v = py/pz
-			float dydd = (t[1]-t[2]*v)/pt[2]/point->idepth;
+			// //! 1/Pz * (tx - u*tz), u = px/pz
+			// float dxdd = (t[0]-t[2]*u)/pt[2]/point->idepth; // Todo bug 此处应该加上"/point->idepth"吧？
+			// //! 1/Pz * (ty - v*tz), v = py/pz
+			// float dydd = (t[1]-t[2]*v)/pt[2]/point->idepth;
+
+			float dxdd = (t[0]-t[2]*u)/pt[2];
+			float dydd = (t[1]-t[2]*v)/pt[2];
 
 			if(hw < 1) hw = sqrtf(hw); //?? 为啥开根号, 答: 鲁棒核函数等价于加权最小二乘
 			//! dxfx, dyfy
@@ -651,13 +654,13 @@ Vec3f CoarseInitializer::calcResAndGS(
 		{
 			// TODO 和之前的不一样的地方在于这里更新energy[0]，不过这里为啥又更新E了呢？难道不应该是更新 EAlpha 吗？bug
 			// energy[0]残差的平方, energy[1]正则化项(逆深度减一的平方)，注意此处的energy和point->energy的区别
-			EAlpha.updateSingle((float)(point->energy[1])); //! 又是故意这样写的，没用的代码。  TODO 此处E.finish()已经被调用，所以不会再更新了。此处应该是EAlpha
+			E.updateSingle((float)(point->energy[1])); //! 又是故意这样写的，没用的代码。  TODO 此处E.finish()已经被调用，所以不会再更新了。此处应该是EAlpha
 		}
 		else
 		{
 			// 最开始初始化都是成1
 			point->energy_new[1] = (point->idepth_new-1)*(point->idepth_new-1);  //? 什么原理?
-			EAlpha.updateSingle((float)(point->energy_new[1])); // TODO 此处应该是EAlpha
+			E.updateSingle((float)(point->energy_new[1])); // TODO 此处应该是EAlpha
 		}
 	}
 	EAlpha.finish(); //! 只是计算位移是否足够大

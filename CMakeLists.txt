@@ -14,15 +14,14 @@ set(CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake)
 
 # required libraries
 find_package(SuiteParse REQUIRED)
-list(APPEND CMAKE_INCLUDE_PATH "/usr/local/include") 
-find_package(Eigen3 REQUIRED)
+# list(APPEND CMAKE_INCLUDE_PATH "/usr/local/include") 
+# find_package(Eigen3 REQUIRED)
 include_directories("/usr/include/eigen3")
 find_package(Boost COMPONENTS system thread) 
 
 # optional libraries
 find_package(LibZip QUIET)
 find_package(Pangolin REQUIRED)
-include_directories(${Pangolin_INCLUDE_DIRS})
 find_package(OpenCV QUIET)
 
 FIND_PACKAGE(Threads QUIET)
@@ -33,8 +32,8 @@ set(CMAKE_CXX_FLAGS
    "${SSE_FLAGS} -O3 -g -std=c++0x -march=native"
 #   "${SSE_FLAGS} -O3 -g -std=c++0x -fno-omit-frame-pointer"
 )
-set(CMAKE_CXX_FLAGS "-std=c++14 -Wall")
-set(CMAKE_CXX_FLAGS_RELEASE  "-std=c++14 -O3 -fopenmp -pthread")
+# set(CMAKE_CXX_FLAGS "-std=c++14 -Wall") # causing not visualization
+# set(CMAKE_CXX_FLAGS_RELEASE  "-std=c++14 -O3 -fopenmp -pthread")
 
 if (MSVC)
      set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /EHsc")
@@ -71,11 +70,6 @@ include_directories(
   ${EIGEN3_INCLUDE_DIR}
   ${eigen_INCLUDE_DIRS}
 ) 
-if(Eigen3_FOUND)
-	message("found eigen")
-else()
-	message("could not find eigen")
-endif()
 
 
 # decide if we have pangolin

@@ -441,7 +441,7 @@ int main( int argc, char** argv )
             }
         }
 
-				// 根据preload变量是否预加载图像，预加载的图像存储在std::vector<ImageAndExposure*> preloadedImages;。
+		// 根据preload变量是否预加载图像，预加载的图像存储在std::vector<ImageAndExposure*> preloadedImages;。
         std::vector<ImageAndExposure*> preloadedImages;
         if(preload)
         {
@@ -449,7 +449,7 @@ int main( int argc, char** argv )
             for(int ii=0;ii<(int)idsToPlay.size(); ii++)
             {
                 int i = idsToPlay[ii];
-								// 图像读取：通过函数reader->getImage(i);实现。
+				// 图像读取：通过函数reader->getImage(i);实现。
                 preloadedImages.push_back(reader->getImage(i));
             }
         }
@@ -459,7 +459,7 @@ int main( int argc, char** argv )
         clock_t started = clock();
         double sInitializerOffset=0;
 
-				// 图像帧处理
+		// 图像帧处理
         for(int ii=0;ii<(int)idsToPlay.size(); ii++)
         {
             if(!fullSystem->initialized)	// if not initialized: reset start time.

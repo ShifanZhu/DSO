@@ -93,7 +93,7 @@ ImmaturePointStatus ImmaturePoint::traceOn(FrameHessian* frame,const Mat33f &hos
 
 	debugPrint = false;//rand()%100==0;
 	float maxPixSearch = (wG[0]+hG[0])*setting_maxPixSearch;  // 极限搜索的最大长度
-	std::cout << "wG hG = " << wG[0] << " " << hG[0] << std::endl;
+	// std::cout << "wG hG = " << wG[0] << " " << hG[0] << std::endl;
 
 	if(debugPrint)
 		printf("trace pt (%.1f %.1f) from frame %d to %d. Range %f -> %f. t %f %f %f!\n",
@@ -193,7 +193,7 @@ ImmaturePointStatus ImmaturePoint::traceOn(FrameHessian* frame,const Mat33f &hos
 		if(!(uMax > 4 && vMax > 4 && uMax < wG[0]-5 && vMax < hG[0]-5))
 		{
 			if(debugPrint) printf("OOB uMax-coarse %f %f %f!\n", uMax, vMax,  ptpMax[2]);
-			std::cout << "dist = " << dist << std::endl;
+			// std::cout << "dist = " << dist << std::endl;
 			lastTraceUV = Vec2f(-1,-1);
 			lastTracePixelInterval=0;
 			return lastTraceStatus = ImmaturePointStatus::IPS_OOB;
