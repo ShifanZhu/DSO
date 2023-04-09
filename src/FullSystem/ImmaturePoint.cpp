@@ -85,14 +85,14 @@ ImmaturePoint::~ImmaturePoint()
 // （5）注意此处优化的变量是步长，迭代优化的过程与其他优化一样，通过setting_trace_GNIterations和setting_trace_GNThreshold确定何时退出迭代。
 // （6）优化结束之后，返回未成熟点的跟踪状态。
 // hostToFrame_* 的旋转矩阵是 hostToNew (即host帧到最新帧)
-ImmaturePointStatus ImmaturePoint::traceOn(FrameHessian* frame,const Mat33f &hostToFrame_KRKi, const Vec3f &hostToFrame_Kt, const Vec2f& hostToFrame_affine, 
+ImmaturePointStatus ImmaturePoint::traceOn(FrameHessian* frame, const Mat33f &hostToFrame_KRKi, const Vec3f &hostToFrame_Kt, const Vec2f& hostToFrame_affine, 
 											CalibHessian* HCalib, bool debugPrint)
 {
 	if(lastTraceStatus == ImmaturePointStatus::IPS_OOB) return lastTraceStatus;
 
 
 	debugPrint = false;//rand()%100==0;
-	float maxPixSearch = (wG[0]+hG[0])*setting_maxPixSearch;  // 极限搜索的最大长度
+	float maxPixSearch = (wG[0]+hG[0])*setting_maxPixSearch;  // 极限搜索的最大长度 = resolution * 0.027 = 640*480*0.027
 	// std::cout << "wG hG = " << wG[0] << " " << hG[0] << std::endl;
 
 	if(debugPrint)
@@ -113,9 +113,12 @@ ImmaturePointStatus ImmaturePoint::traceOn(FrameHessian* frame,const Mat33f &hos
 //[ ***step 1*** ] 计算出来搜索的上下限, 对应idepth_max, idepth_min
 	// （1）利用idepth_min计算出未成熟点在当前帧的投影位置，得到（uMin，vMin），对投影位置进行判断，不满足条件的设置ImmaturePointStatus::IPS_OOB;
 	// u v 是host里的像素坐标， hostToFrame_KRKi 是 host到最新帧的像素坐标系之间的坐标变换
-	Vec3f pr = hostToFrame_KRKi * Vec3f(u,v, 1); // 投影到最新帧的像素坐标系的值
-	Vec3f ptpMin = pr + hostToFrame_Kt*idepth_min; // idepth_min 是逆深度范围的最小值，相当于逆深度最小的时候host里的像素坐标投影到最新帧的像素坐标系的值
-	float uMin = ptpMin[0] / ptpMin[2];
+	Vec3f pr = hostToFrame_KRKi * Vec3f(u, v, 1); // 投影到最新帧的像素坐标系的值。此时pf[2]的值不是1，在1附近
+	// std::cout << "pr = " << pr.transpose() << std::endl;
+	// std::cout << "idepth_min = " << idepth_min << std::endl;
+	Vec3f ptpMin = pr + hostToFrame_Kt*idepth_min; // idepth_min 是逆深度范围的最小值，相当于假设逆深度最小的时候host里的像素坐标投影到最新帧的像素坐标系的值
+													// 为什么不用预估的值呢？
+	float uMin = ptpMin[0] / ptpMin[2]; // 从此处开始搜索
 	float vMin = ptpMin[1] / ptpMin[2];
 
 	// 如果超出图像范围则设为 OOB
@@ -136,8 +139,8 @@ ImmaturePointStatus ImmaturePoint::traceOn(FrameHessian* frame,const Mat33f &hos
 	// 默认没有定义 idepth_max
 	if(std::isfinite(idepth_max))
 	{
-		ptpMax = pr + hostToFrame_Kt*idepth_max; // idepth_max 是逆深度范围的最大值，相当于逆深度最大的时候host里的像素坐标投影到最新帧的像素坐标系的值
-		uMax = ptpMax[0] / ptpMax[2];
+		ptpMax = pr + hostToFrame_Kt*idepth_max; // idepth_max 是逆深度范围的最大值，相当于假设逆深度最大的时候host里的像素坐标投影到最新帧的像素坐标系的值
+		uMax = ptpMax[0] / ptpMax[2]; // 在此处结束搜索
 		vMax = ptpMax[1] / ptpMax[2];
 
 
