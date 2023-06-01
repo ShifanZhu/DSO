@@ -323,7 +323,7 @@ Vec4 FullSystem::trackNewCoarse(FrameHessian* fh)
 		// std::cout << "fh time = " << fh -> shell -> timestamp << std::endl;
 		// std::cout << "lastF time = " << lastF -> shell -> timestamp << std::endl;
 
-		//! 尝试不同的运动
+		//! 尝试不同的运动(参考帧对当前的位姿)
 		// get last delta-movement.
 		lastF_2_fh_tries.push_back(fh_2_slast.inverse() * lastF_2_slast);	// assume constant motion.
 		lastF_2_fh_tries.push_back(fh_2_slast.inverse() * fh_2_slast.inverse() * lastF_2_slast);	// assume double motion (frame skipped)

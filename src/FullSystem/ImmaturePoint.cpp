@@ -92,7 +92,7 @@ ImmaturePointStatus ImmaturePoint::traceOn(FrameHessian* frame, const Mat33f &ho
 
 
 	debugPrint = false;//rand()%100==0;
-	float maxPixSearch = (wG[0]+hG[0])*setting_maxPixSearch;  // 极限搜索的最大长度 = resolution * 0.027 = 640*480*0.027
+	float maxPixSearch = (wG[0]+hG[0])*setting_maxPixSearch;  // 极限搜索的最大长度 = resolution * 0.027 = (640+480)*0.027 = 8294.4
 	// std::cout << "wG hG = " << wG[0] << " " << hG[0] << std::endl;
 
 	if(debugPrint)
@@ -172,12 +172,13 @@ ImmaturePointStatus ImmaturePoint::traceOn(FrameHessian* frame, const Mat33f &ho
 	}
 	// （3）若未定义 idepth_max ，则取 idepth_max 为0.01，计算出极线方向，设置步长为 dist = maxPixSearch;，则可以通过计算得到（ uMax ， vMax ）。
 	//	   判断 uMax 和 vMax ，不满足条件的设置 ImmaturePointStatus::IPS_OOB;。
-	else
+	else // 如果是第一次更新，那么最大搜索长度固定为maxPixSearch
 	{
 		//* 上限无穷大, 则设为最大值
-		dist = maxPixSearch; // maxPixSearch的值为0.027*(w+h) 对于(346+260)*0.027 = 16.362
+		dist = maxPixSearch; // maxPixSearch的值为0.027*(w+h) 对于(640+480)*0.027 = 30.24
 
 		// project to arbitrary depth to get direction.
+		// 任意投影到较为合理的最大逆深度，深度100，只为获得极线方向
 		ptpMax = pr + hostToFrame_Kt*0.01;
 		uMax = ptpMax[0] / ptpMax[2];
 		vMax = ptpMax[1] / ptpMax[2];
@@ -217,11 +218,15 @@ ImmaturePointStatus ImmaturePoint::traceOn(FrameHessian* frame, const Mat33f &ho
 	}
 
 //[ ***step 2*** ] 计算误差大小(图像梯度和极线夹角大小), 夹角大, 小的几何误差会有很大影响
+	// 计算像素匹配不确定度， Vec2f(dx, dy)表示极线方向，Vec2f(dy, -dx)表示极线的垂直方向，gradH表示的是特征点周围8邻域像素hessian梯度求和。
+	// 按照前面理论分析，当极线的方向和特征点梯度的方向垂直时，匹配误差较大，当极线方向和特征点梯度平行时，匹配误差最小；因此代码中的a可以表示极线与梯度的点乘再求平方，
+	// 即前面公式中的. 假设极线与梯度平行，此时a特别大，b相对较小，因此（a+b）/a接近于1，那么在最优的情况下每一个像素会产生0.4个像素的误差；此时的0.4可以看做基础噪声;
+	// 如果极线和梯度垂直，此时a非常小，而b非常大，所以误差就会明显增加
 	// ============== compute error-bounds on result in pixel. if the new interval is not at least 1/2 of the old, SKIP ===================
 	float dx = setting_trace_stepsize*(uMax-uMin); // setting_trace_stepsize 是 stepsize for initial discrete search. 值为1.0
 	float dy = setting_trace_stepsize*(vMax-vMin);
 
-	// gradH 是8个patternP点的灰度梯度矩阵[dx*2, dxdy; dydx, dy^2]
+	// Vec2f(dx,dy)是极线方向，Vec2f(dy, -dx)表示极线的垂直方向，gradH表示的是特征点周围8邻域像素hessian梯度求和 [dx*2, dxdy; dydx, dy^2]
 	//! (dIx*dx + dIy*dy)^2
 	float a = (Vec2f(dx,dy).transpose() * gradH * Vec2f(dx,dy)); 
 	//! (dIx*dy - dIy*dx)^2
@@ -244,7 +249,7 @@ ImmaturePointStatus ImmaturePoint::traceOn(FrameHessian* frame, const Mat33f &ho
 
 
 	// ============== do the discrete search ===================
-//[ ***step 3*** ] 在极线上找到最小的光度误差的位置, 并计算和第二次的比值作为质量
+//[ ***step 3*** ] 在极线上找到最小的光度误差的位置, 并计算和第二好的比值作为质量
 	// （4）利用前（3）步计算的结果确定极线搜索的方向，然后通过调整步长（次数为 numSteps ），选取其中最好的结果作为初值用于后续的高斯牛顿优化。
 	dx /= dist; // cos // 此处的dist应该为16.362，现在的dx和dy是一个小步长
 	dy /= dist;	// sin
@@ -259,12 +264,15 @@ ImmaturePointStatus ImmaturePoint::traceOn(FrameHessian* frame, const Mat33f &ho
 				);
 
 
-	if(dist>maxPixSearch)
+	if(dist>maxPixSearch) // > 30.24 ?
 	{
 		uMax = uMin + maxPixSearch*dx;
 		vMax = vMin + maxPixSearch*dy;
 		dist = maxPixSearch;
 	}
+
+	// 完成上述的处理后就是具体的在极线上搜索匹配点的工作，在极线上以1个像素为步长进行搜索。每到一个像素位置计算其8邻域图像块的灰度残差，
+	// 并将最小残差和最小残差对应的像素位置进行记录。最多进行100个步长的搜索。注意此处得到的是粗精度的：1 pixel
 
 	int numSteps = 1.9999f + dist / setting_trace_stepsize; // 步数
 	Mat22f Rplane = hostToFrame_KRKi.topLeftCorner<2,2>();
@@ -291,7 +299,7 @@ ImmaturePointStatus ImmaturePoint::traceOn(FrameHessian* frame, const Mat33f &ho
 	}
 
 
-	//* 沿着级线搜索误差最小的位置
+	//* 沿着极线搜索误差最小的位置
 	float errors[100];
 	float bestU=0, bestV=0, bestEnergy=1e10;
 	int bestIdx=-1;
@@ -341,6 +349,7 @@ ImmaturePointStatus ImmaturePoint::traceOn(FrameHessian* frame, const Mat33f &ho
 	if(newQuality < quality || numSteps > 10) quality = newQuality;
 
 //[ ***step 4*** ] 在上面的最优位置进行线性搜索, 进行求精
+	// 根据上面一步，已经找到了1个像素精度的最佳匹配点，接着利用高斯牛顿算法继续优化亚像素级别的最佳匹配位置。
 	// ============== do GN optimization ===================
 	// （5）注意此处优化的变量是步长，迭代优化的过程与其他优化一样，通过 setting_trace_GNIterations 和 setting_trace_GNThreshold 确定何时退出迭代。
 	float uBak=bestU, vBak=bestV, gnstepsize=1, stepBack=0;
@@ -431,6 +440,7 @@ ImmaturePointStatus ImmaturePoint::traceOn(FrameHessian* frame, const Mat33f &ho
 	}
 
 //[ ***step 5*** ] 根据得到的最优位置重新计算逆深度的范围
+	// 后边使用的是 idepth_min 和 idepth_max 的中值，作为此点的逆深度
 	// ============== set new interval ===================
 	//! u = (pr[0] + Kt[0]*idepth) / (pr[2] + Kt[2]*idepth) ==> idepth = (u*pr[2] - pr[0]) / (Kt[0] - u*Kt[2])
 	//! v = (pr[1] + Kt[1]*idepth) / (pr[2] + Kt[2]*idepth) ==> idepth = (v*pr[2] - pr[1]) / (Kt[1] - v*Kt[2])
@@ -447,6 +457,7 @@ ImmaturePointStatus ImmaturePoint::traceOn(FrameHessian* frame, const Mat33f &ho
 		idepth_max = (pr[2]*(bestV+errorInPixel*dy) - pr[1]) / (hostToFrame_Kt[1] - hostToFrame_Kt[2]*(bestV+errorInPixel*dy));
 	}
 	if(idepth_min > idepth_max) std::swap<float>(idepth_min, idepth_max);
+	// std::cout << "idepth min max = "<<idepth_min << "  " << idepth_max << std::endl;
 
 
 	// （6）优化结束之后，返回未成熟点的跟踪状态。  没太看出来
@@ -461,8 +472,8 @@ ImmaturePointStatus ImmaturePoint::traceOn(FrameHessian* frame, const Mat33f &ho
 	}
 
 	lastTracePixelInterval=2*errorInPixel; 	// 搜索的范围
-	lastTraceUV = Vec2f(bestU, bestV);		// 上一次得到的最有位置
-	return lastTraceStatus = ImmaturePointStatus::IPS_GOOD; 	//上一次的位置
+	lastTraceUV = Vec2f(bestU, bestV);		// 上一次得到的最优位置
+	return lastTraceStatus = ImmaturePointStatus::IPS_GOOD; 	//上一次的状态
 }
 
 
