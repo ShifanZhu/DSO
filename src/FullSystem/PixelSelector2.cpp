@@ -162,7 +162,7 @@ void PixelSelector::makeHists(const FrameHessian* const fh)
 			num++; sum+=ths[x+y*w32];
 
 			thsSmoothed[x+y*w32] = (sum/num) * (sum/num); // cout is about 49. !! Why only gray gradient larger than 49 would
-																										// be remained, so the remained potential features woule be little.
+															// be remained, so the remained potential features would be little.
 			// std::cout << "thsSmoothed[x+y*w32] = " << thsSmoothed[x+y*w32] << std::endl;
 		}
 
