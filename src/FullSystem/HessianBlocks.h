@@ -98,7 +98,7 @@ struct FrameFramePrecalc
 
 	Vec3f PRE_tTll; //  host 到 target之间优化后的平移 t
 	Vec3f PRE_KtTll; // K*t
-	Vec3f PRE_tTll_0; //  host 到 target之间初始的平移, 优化更新前
+	Vec3f PRE_tTll_0; //  host 到 target之间初始的平移, 优化更新前,用于 first estimate jacobian
 
 	float distanceLL; // 两帧间距离
 

@@ -94,8 +94,11 @@ CoarseInitializer::~CoarseInitializer()
 // 使用低一层点的逆深度更新其高一层点parent的逆深度，这个更新是基于iR的，使得逆深度平滑。高层的点逆深度，在后续的操作中，没有使用到，所以这一步操作我认为是无用的。
 
 // 将当前帧赋给newFrame为第一次跟踪，并为第一次跟踪做准备，（此时snapped为false，上一篇博客有提到）将两帧相对位姿的平移部分置0，并且给第一帧选取的像素点相关信息设置初值。
+// 该函数只有在程序最开始调用
 bool CoarseInitializer::trackFrame(FrameHessian* newFrameHessian, std::vector<IOWrap::Output3DWrapper*> &wraps)
 {
+	//! 只有在程序最开始的时候执行
+	std::cout << "track frame!!!" << std::endl;
 	newFrame = newFrameHessian;
 //[ ***step 1*** ] 先显示新来的帧
 	// 新的一帧, 在跟踪之前显示的
@@ -412,6 +415,8 @@ Vec3f CoarseInitializer::calcResAndGS(
 		const SE3 &refToNew, AffLight refToNew_aff,
 		bool plot)
 {
+	// 只有在程序最开始的时候执行
+	std::cout << "Calling calcResAndGS" << std::endl; 
 	int wl = w[lvl], hl = h[lvl];
 	// 当前层图像及梯度,用法如下
 	// colorNew[idx][0]  表示当前层lvl，idx位置处的像素的像素灰度值;

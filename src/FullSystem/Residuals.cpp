@@ -92,18 +92,27 @@ double PointFrameResidual::linearize(CalibHessian* HCalib)
 	// 首先获取当前残差的主导帧和目标帧之间的一些预计算量，点的灰度值和权重
 	FrameFramePrecalc* precalc = &(host->targetPrecalc[target->idx]); // 得到这个目标帧在主帧上的一些预计算参数
 	float energyLeft=0;			// 
-	const Eigen::Vector3f* dIl = target->dI;
+	const Eigen::Vector3f* dIl = target->dI; // [intensity gx gy]
 	//const float* const Il = target->I;
+
+	// K * R * K^{-1}: from host to target
+  // current estimate
 	const Mat33f &PRE_KRKiTll = precalc->PRE_KRKiTll;
 	const Vec3f &PRE_KtTll = precalc->PRE_KtTll;
+
+	// Rth_0: rotation from host to target
+  // first estimate
 	const Mat33f &PRE_RTll_0 = precalc->PRE_RTll_0;
+
+	// tth_0: translation from host to target
+  // first estimate
 	const Vec3f &PRE_tTll_0 = precalc->PRE_tTll_0;
 	const float * const color = point->color;	// host帧上颜色
 	const float * const weights = point->weights;
 
+	// ATTENTION: FIRST ESTIMATE
 	Vec2f affLL = precalc->PRE_aff_mode; // 待优化的a和b, 就是host和target合的
 	float b0 = precalc->PRE_b0_mode;		// 主帧的单独 b
-
 	
 	//! x=0时候求几何的导数, 使用FEJ!! ,逆深度没有使用FEJ
 	Vec6f d_xi_x, d_xi_y;
@@ -115,6 +124,7 @@ double PointFrameResidual::linearize(CalibHessian* HCalib)
 		Vec3f KliP;
 		
 		// 然后通过投影函数 projectPoint()将点投影到目标帧，并判断投影位置，若不满足要求则设置： state_NewState = ResState::OOB。
+		//! All estimates including idepth_zero_scaled are the first estimates!
 		if(!projectPoint(point->u, point->v, point->idepth_zero_scaled, 0, 0,HCalib,
 				PRE_RTll_0,PRE_tTll_0, drescale, u, v, Ku, Kv, KliP, new_idepth))
 			{ state_NewState = ResState::OOB; return state_energy; } // 投影不在图像里, 则返回OOB

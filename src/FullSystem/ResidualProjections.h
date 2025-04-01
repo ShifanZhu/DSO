@@ -76,9 +76,9 @@ EIGEN_STRONG_INLINE bool projectPoint(
 			(v_pt+dy-HCalib->cyl())*HCalib->fyli(),
 			1);
 
-	Vec3f ptp = R * KliP + t*idepth;
-	drescale = 1.0f/ptp[2]; 		// target帧逆深度 比 host帧逆深度
-	new_idepth = idepth*drescale;	// 新的帧上逆深度
+	Vec3f ptp = R * KliP + t*idepth; // P2_virtual
+	drescale = 1.0f/ptp[2]; 		// target逆深度/host逆深度，相当于 1.0f/ptp[2] / 1.0
+	new_idepth = idepth*drescale;	// 新的target帧上逆深度 = host*scale
 
 	if(!(drescale>0)) return false;
 

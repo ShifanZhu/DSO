@@ -92,7 +92,7 @@ ImmaturePointStatus ImmaturePoint::traceOn(FrameHessian* frame, const Mat33f &ho
 
 
 	debugPrint = false;//rand()%100==0;
-	float maxPixSearch = (wG[0]+hG[0])*setting_maxPixSearch;  // 极限搜索的最大长度 = resolution * 0.027 = (640+480)*0.027 = 8294.4
+	float maxPixSearch = (wG[0]+hG[0])*setting_maxPixSearch;  // 极限搜索的最大长度 = resolution * 0.027 = (640+480)*0.027 = 30.24
 	// std::cout << "wG hG = " << wG[0] << " " << hG[0] << std::endl;
 
 	if(debugPrint)
@@ -224,7 +224,7 @@ ImmaturePointStatus ImmaturePoint::traceOn(FrameHessian* frame, const Mat33f &ho
 	// 如果极线和梯度垂直，此时a非常小，而b非常大，所以误差就会明显增加
 	// ============== compute error-bounds on result in pixel. if the new interval is not at least 1/2 of the old, SKIP ===================
 	float dx = setting_trace_stepsize*(uMax-uMin); // setting_trace_stepsize 是 stepsize for initial discrete search. 值为1.0
-	float dy = setting_trace_stepsize*(vMax-vMin);
+	float dy = setting_trace_stepsize*(vMax-vMin);	
 
 	// Vec2f(dx,dy)是极线方向，Vec2f(dy, -dx)表示极线的垂直方向，gradH表示的是特征点周围8邻域像素hessian梯度求和 [dx*2, dxdy; dydx, dy^2]
 	//! (dIx*dx + dIy*dy)^2
@@ -277,7 +277,7 @@ ImmaturePointStatus ImmaturePoint::traceOn(FrameHessian* frame, const Mat33f &ho
 	int numSteps = 1.9999f + dist / setting_trace_stepsize; // 步数
 	Mat22f Rplane = hostToFrame_KRKi.topLeftCorner<2,2>();
 
-	float randShift = uMin*1000-floorf(uMin*1000); // 	取小数点后面的做随机数??
+	float randShift = uMin*1000-floorf(uMin*1000); // 取小数点后面的做随机数??
 	float ptx = uMin-randShift*dx; // 这个得到的是uMin左上角的一个值，相当于从uvMin的前边一点开始算
 	float pty = vMin-randShift*dy;
 
@@ -366,6 +366,7 @@ ImmaturePointStatus ImmaturePoint::traceOn(FrameHessian* frame, const Mat33f &ho
 
 			if(!std::isfinite((float)hitColor[0])) {energy+=1e5; continue;}
 			float residual = hitColor[0] - (hostToFrame_affine[0] * color[idx] + hostToFrame_affine[1]);
+			//dResdDist 就是 J = [gx ,gy] * [dx, dy].t()
 			float dResdDist = dx*hitColor[1] + dy*hitColor[2]; // 极线方向梯度
 			float hw = fabs(residual) < setting_huberTH ? 1 : setting_huberTH / fabs(residual);
 

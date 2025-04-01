@@ -515,7 +515,7 @@ void FullSystem::traceNewCoarse(FrameHessian* fh)
 
 	// 遍历关键帧
 	// 遍历frameHessians， 遍历所有ImmaturePoint，(此时在第八帧上提取了点，生成了ImmaturePoint)利用函数traceOn进行跟踪（又称极线搜索）。
-	for(FrameHessian* host : frameHessians)		// go through all active key frames. Max is 7 key frames
+	for(FrameHessian* host : frameHessians) // go through all active key frames. Max is 7 key frames
 	{
 		// 预计算的, 位姿状态增量更新到位姿上
 		SE3 hostToNew = fh->PRE_worldToCam * host->PRE_camToWorld; // host帧到最新帧的位姿
@@ -539,13 +539,13 @@ void FullSystem::traceNewCoarse(FrameHessian* fh)
 		}
 	}
 	printf("ADD: TRACE: %'d points. %'d (%.0f%%) good. %'d (%.0f%%) skip. %'d (%.0f%%) badcond. %'d (%.0f%%) oob. %'d (%.0f%%) out. %'d (%.0f%%) uninit.\n",
-			trace_total,
-			trace_good, 100*trace_good/(float)trace_total,
-			trace_skip, 100*trace_skip/(float)trace_total,
-			trace_badcondition, 100*trace_badcondition/(float)trace_total,
-			trace_oob, 100*trace_oob/(float)trace_total,
-			trace_out, 100*trace_out/(float)trace_total,
-			trace_uninitialized, 100*trace_uninitialized/(float)trace_total);
+	trace_total,
+	trace_good, 100*trace_good/(float)trace_total,
+	trace_skip, 100*trace_skip/(float)trace_total,
+	trace_badcondition, 100*trace_badcondition/(float)trace_total,
+	trace_oob, 100*trace_oob/(float)trace_total,
+	trace_out, 100*trace_out/(float)trace_total,
+	trace_uninitialized, 100*trace_uninitialized/(float)trace_total);
 }
 
 
@@ -649,7 +649,8 @@ void FullSystem::activatePointsMT()
 			bool canActivate = (ph->lastTraceStatus == IPS_GOOD
 					|| ph->lastTraceStatus == IPS_SKIPPED
 					|| ph->lastTraceStatus == IPS_BADCONDITION
-					|| ph->lastTraceStatus == IPS_OOB )
+					|| ph->lastTraceStatus == IPS_OOB 
+					)
 							&& ph->lastTracePixelInterval < 8
 							&& ph->quality > setting_minTraceQuality
 							&& (ph->idepth_max+ph->idepth_min) > 0;
@@ -951,7 +952,7 @@ void FullSystem::addActiveFrame( ImageAndExposure* image, int id )
 		// 这个函数只有初始化用。初始化过程中最小化光度误差目的是确定第一帧每一个点的逆深度idepth（Jacobian 对应代码中的变量 dd）、第一帧和第二帧的相对位姿。
 		// 两帧之间的参数 用LM方法不断优化解高斯牛顿方程获得 参数包括：第一帧上特征点深度值， 第一帧到当前帧的位姿变换，仿射参数
 		// 变换一共N(特征点个数) + 8(位姿+ 仿射系数)个解
-		else if(coarseInitializer->trackFrame(fh, outputWrapper))	// if SNAPPED
+		else if(coarseInitializer->trackFrame(fh, outputWrapper)) // if SNAPPED
 		{
 		//[ ***step 4.2*** ] 跟踪成功, 完成初始化
 			initializeFromInitializer(fh); //真正的初始化操作
@@ -1234,7 +1235,7 @@ void FullSystem::makeKeyFrame( FrameHessian* fh)
 	for(FrameHessian* fh1 : frameHessians)		// go through all active frames
 	{
 		if(fh1 == fh) continue;
-		for(PointHessian* ph : fh1->pointHessians)  // 全都构造之后再删除
+		for(PointHessian* ph : fh1->pointHessians) // 全都构造之后再删除
 		{
 			PointFrameResidual* r = new PointFrameResidual(ph, fh1, fh); // 新建当前帧fh和之前帧之间的残差
 			r->setState(ResState::IN);
@@ -1253,7 +1254,11 @@ void FullSystem::makeKeyFrame( FrameHessian* fh)
 	// 6.activatePointsMT();利用当前帧的信息优化所有 frameHessians 的 ImmaturePoint ，注意此时 frameHessians 里面包含了当前帧，因此在遍历的时候会跳过。
 	// 同样，此时由于第一帧中没有未成熟点，此函数相当于未执行。
 	// =========================== Activate Points (& flag for marginalization). =========================
+	clock_t tic = clock();
 	activatePointsMT(); // 将未成熟点转化为PointHessian
+	clock_t toc = clock();
+	double time = (double)(toc-tic);
+	std::cout << "\nTime taken: " << (1000*(time/CLOCKS_PER_SEC)) << " (ms)" << std::endl;
 	// 利用makeIDX()函数重新建立idx。
 	// （7） 重新建立idx：ef->makeIDX(); 此处的步骤（7）从 activatePointsMT() 中继续。（此处假设当前的第十帧是关键帧。）
 	ef->makeIDX();  // ? 为啥要重新设置ID呢, 是因为加新的帧了么
